@@ -1181,18 +1181,19 @@
       <span class="footer-badge">HDF5</span>
     </div>
     <div class="footer-links">
-      <a href="https://www.cofrend.com/" target="_blank" rel="noopener" class="footer-link">
+      <a href="https://github.com/COFREND/ONDE-format" target="_blank" rel="noopener" class="footer-link">
         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 1h6v6M11 1L1 11"/></svg>
-        COFREND ONDE
+        ONDE Spec
       </a>
-      <a href="https://www.evidentscientific.com/" target="_blank" rel="noopener" class="footer-link">
+      <a href="https://github.com/Evident-Industrial/NDE_Open_File_Format" target="_blank" rel="noopener" class="footer-link">
         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 1h6v6M11 1L1 11"/></svg>
-        EVIDENT NDE 4.2.0
+        NDE Spec · ndeformat.com
       </a>
       <a href="https://www.hdfgroup.org/" target="_blank" rel="noopener" class="footer-link">
         <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 1h6v6M11 1L1 11"/></svg>
-        HDF Group
+        HDF5
       </a>
+      <span class="footer-badge" style="opacity:0.6">Domaine public</span>
     </div>
   </footer>
 
@@ -1206,6 +1207,7 @@
   import {
     ONDE_TO_NDE,
     NDE_TO_ONDE,
+    DIMENSION_MAPPING,
     detectFormat
   } from './src/mapping.js';
 
@@ -1667,6 +1669,15 @@
         ndeField: '/Properties: file.formatVersion',
         type: 'string'
       });
+    } else if (direction === 'nde-to-onde' && source.fileIdentity?.attributes) {
+      for (const [attr, value] of Object.entries(source.fileIdentity.attributes)) {
+        entries.push({
+          category: 'File Identity',
+          ondeField: `${attr} = "${value}"`,
+          ndeField: `Root attribute: ${attr}`,
+          type: 'string'
+        });
+      }
     }
 
     // Dataset Types
@@ -1707,6 +1718,17 @@
           ndeField: mapping.nde,
           type: typeInfo
         });
+        // Expand inline enum value mappings
+        if (mapping.map) {
+          for (const [ondeVal, ndeVal] of Object.entries(mapping.map)) {
+            entries.push({
+              category: 'Ultrasonic Setup',
+              ondeField: `  ${ondeKey} = ${ondeVal}`,
+              ndeField: `${mapping.nde} = "${ndeVal}"`,
+              type: 'enum'
+            });
+          }
+        }
       }
     }
 
@@ -1732,6 +1754,16 @@
           });
         }
       }
+      if (source.waveModeMap) {
+        for (const [ndeVal, ondeVal] of Object.entries(source.waveModeMap)) {
+          entries.push({
+            category: 'Ultrasonic Setup',
+            ondeField: `waveMode = "${ondeVal}"`,
+            ndeField: `waveMode = "${ndeVal}"`,
+            type: 'mapping'
+          });
+        }
+      }
     }
 
     // Geometric Setup
@@ -1744,6 +1776,33 @@
           type: mapping.type
         });
       }
+    }
+    if (direction === 'nde-to-onde') {
+      // Structural reverse mapping: NDE → ONDE GEOMETRIC_SETUP
+      entries.push({
+        category: 'Geometric Setup',
+        ondeField: 'ONDE_SETUP:GEOMETRIC_SETUP',
+        ndeField: 'NDE Setup structure',
+        type: 'container'
+      });
+      entries.push({
+        category: 'Geometric Setup',
+        ondeField: 'COMPONENT → specimens',
+        ndeField: 'specimens array',
+        type: 'structure'
+      });
+      entries.push({
+        category: 'Geometric Setup',
+        ondeField: 'PROBE_LIST → probes',
+        ndeField: 'probes array',
+        type: 'structure'
+      });
+      entries.push({
+        category: 'Geometric Setup',
+        ondeField: 'ACQUISITION_TRAJECTORY → motionDevices',
+        ndeField: 'motionDevices array',
+        type: 'structure'
+      });
     }
 
     // Component mapping
@@ -1877,6 +1936,18 @@
       }
     }
 
+    // Gate Detection (ONDE → NDE)
+    if (direction === 'onde-to-nde' && source.gateDetection) {
+      for (const [ondeVal, ndeVal] of Object.entries(source.gateDetection)) {
+        entries.push({
+          category: 'Gates',
+          ondeField: ondeVal,
+          ndeField: ndeVal,
+          type: 'mapping'
+        });
+      }
+    }
+
     // Dimension mapping
     if (direction === 'nde-to-onde' && source.axisToOndeDimension) {
       for (const [ndeAxis, ondeDim] of Object.entries(source.axisToOndeDimension)) {
@@ -1886,6 +1957,28 @@
           ndeField: ndeAxis,
           type: 'axis'
         });
+      }
+    }
+
+    // Dimensions (ONDE → NDE)
+    if (direction === 'onde-to-nde' && DIMENSION_MAPPING) {
+      for (const [ondeType, dimConfig] of Object.entries(DIMENSION_MAPPING)) {
+        entries.push({
+          category: 'Dimensions',
+          ondeField: `${ondeType} (dataset)`,
+          ndeField: 'NDE axes per dataset type',
+          type: 'dataset'
+        });
+        if (dimConfig.indexMapping) {
+          for (const im of dimConfig.indexMapping) {
+            entries.push({
+              category: 'Dimensions',
+              ondeField: `  [${im.ondeIndex}] ${im.name}`,
+              ndeField: im.ndeAxis,
+              type: 'axis'
+            });
+          }
+        }
       }
     }
 
@@ -1923,6 +2016,7 @@
       'Components',
       'Probes',
       'Coupling / Wedges',
+      'Gates',
       'Phased Array',
       'Dimensions'
     ];
