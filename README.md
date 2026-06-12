@@ -31,9 +31,11 @@
 | `.nde` | NDE | Evident v4.2.0 |
 | `.h5` | HDF5 | Conteneur générique (détection automatique ONDE ou NDE) |
 
+## - **codé par IA** L'entièretée du code a été générée en utilisant Deepseek V4 en mode agentique, cout total : 55 centimes.
+prompt : creer un convertisseur de fichiers ultrason, entre les formats ONDE et NDE, fait des recherches sur ces formats, telecharge les données par exemple le setup json shema pour nde et le ondefields, et creer une application web qui permet de convertir localement son fichier d'un format a l'autre dans les 2 sens. Fait des tests pour verifier qu'il n'y a pas d'erreur, délegue les taches pour economiser des ressources, prend ton temps pour faire des rechercehs complettes et etablir un tableau de correspondance complet
+
 ## 🛠️ Détails techniques
 
-- **codé par IA** L'entièretée du code a été générée en utilisant Deepseek V4, cout total : 55 centimes.
 - **[h5wasm](https://github.com/usnistgov/h5wasm)** — bibliothèque HDF5 compilée en WebAssembly pour la lecture/écriture de fichiers HDF5 dans le navigateur
 - **Module WASM custom** (`lib/h5wasm-ref.js` + `lib/h5wasm-ref.wasm`) — implémente les fonctions de manipulation de références HDF5 (`H5Rcreate`, `H5Rdereference`) nécessaires au format ONDE, compilé avec **Emscripten**
 - **Interface** HTML/CSS/JS vanilla — aucun framework, aucune dépendance serveur
