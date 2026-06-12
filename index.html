@@ -209,6 +209,12 @@
       border-color: var(--border-visible);
     }
 
+    /* ── Mapping panel scroll constraint ─────────── */
+    #mapping-panel {
+      max-height: calc(100vh - 160px);
+      overflow: hidden;
+    }
+
     .panel-header {
       display: flex;
       align-items: center;
@@ -702,12 +708,13 @@
 
     /* ── Mapping Sections ──────────────────────── */
     .mapping-list {
-      max-height: 500px;
+      flex: 1;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 2px;
       scroll-behavior: smooth;
+      min-height: 0;
     }
 
     .mapping-list::-webkit-scrollbar {
@@ -726,7 +733,7 @@
     .mapping-category {
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
-      overflow: hidden;
+      overflow: visible;
       background: var(--bg-surface);
       transition: border-color var(--duration-fast) var(--ease-out);
     }
@@ -777,38 +784,41 @@
 
     .category-body {
       max-height: 0;
-      overflow: hidden;
-      transition: max-height var(--duration-slow) var(--ease-out);
+      overflow: visible;
     }
 
     .category-body.open {
-      max-height: 2000px;
+      max-height: none;
     }
 
     .mapping-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.72rem;
+      font-size: 0.78rem;
+      table-layout: auto;
     }
 
     .mapping-table th {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.6rem;
+      font-size: 0.65rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.03em;
       color: var(--text-muted);
       padding: 8px var(--space-md);
       text-align: left;
       border-bottom: 1px solid var(--border-subtle);
       background: var(--bg-elevated);
+      white-space: nowrap;
     }
 
     .mapping-table td {
-      padding: 7px var(--space-md);
+      padding: 8px var(--space-md);
       border-bottom: 1px solid rgba(139, 149, 168, 0.05);
       color: var(--text-secondary);
       vertical-align: top;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     .mapping-table tr:last-child td {
@@ -821,20 +831,23 @@
 
     .mapping-table .field-onde {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       color: #0ce6f2;
+      white-space: nowrap;
     }
 
     .mapping-table .field-nde {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       color: #f59e0b;
+      white-space: nowrap;
     }
 
     .mapping-table .field-type {
-      font-size: 0.62rem;
+      font-size: 0.68rem;
       color: var(--text-muted);
       font-style: italic;
+      white-space: nowrap;
     }
 
     .mapping-arrow-cell {
@@ -993,7 +1006,7 @@
       }
 
       .mapping-list {
-        max-height: 350px;
+        max-height: 60vh;
       }
 
       .footer {
@@ -1562,7 +1575,8 @@
     try {
       await generateTestNdeFile();
     } catch (e) {
-      showError(`Test file generation failed: ${e.message}`);
+      console.error('Test gen error:', e);
+      showError(`Test file generation failed: ${e?.message || String(e)}`);
     }
   });
 
@@ -2115,9 +2129,9 @@
 
   /** Copy a JS string into WASM heap as a null-terminated C string */
   function wasmString(mod, str) {
-    const len = new TextEncoder().encode(str).length;
-    const ptr = mod._malloc(len + 1);
-    mod.stringToUTF8(str, ptr, len + 1);
+    const encoded = new TextEncoder().encode(str + '\0');
+    const ptr = mod._malloc(encoded.length);
+    mod.HEAPU8.set(encoded, ptr);
     return ptr;
   }
   function freeWasmString(mod, ptr) { mod._free(ptr); }
