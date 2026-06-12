@@ -1,0 +1,2170 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Convertisseur ONDE↔NDE — Ultrasonic File Format Converter</title>
+
+  <!-- Fonts: Sora for headings, JetBrains Mono for data, Inter for body -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- h5wasm -->
+  <script src="https://cdn.jsdelivr.net/npm/h5wasm@0.7.0/dist/iife/h5wasm.js"></script>
+
+  <!-- HDF5 reference module (supports H5Rcreate, H5Rdereference, etc.) -->
+  <script src="lib/h5wasm-ref.js"></script>
+
+  <style>
+    /* ═══════════════════════════════════════════════════
+       CSS Custom Properties — Dark Engineering Theme
+       ═══════════════════════════════════════════════════ */
+    :root {
+      /* Surfaces */
+      --bg-root: #090d14;
+      --bg-elevated: #0f1520;
+      --bg-surface: #141c2b;
+      --bg-overlay: #1a2335;
+      --bg-glass: rgba(20, 28, 43, 0.75);
+      --bg-glass-hover: rgba(26, 35, 53, 0.85);
+
+      /* Accent — Teal/Cyan for ultrasonic feel */
+      --accent-primary: #0ce6f2;
+      --accent-secondary: #00b8d4;
+      --accent-glow: rgba(12, 230, 242, 0.25);
+      --accent-glow-strong: rgba(12, 230, 242, 0.45);
+      --accent-warm: #f59e0b;
+      --accent-danger: #ef4444;
+
+      /* Typography */
+      --text-primary: #e8edf4;
+      --text-secondary: #8b95a8;
+      --text-muted: #556178;
+      --text-accent: #0ce6f2;
+
+      /* Borders & Dividers */
+      --border-subtle: rgba(139, 149, 168, 0.12);
+      --border-visible: rgba(139, 149, 168, 0.25);
+      --border-accent: rgba(12, 230, 242, 0.35);
+
+      /* Sizing */
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --radius-xl: 22px;
+
+      /* Shadows */
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+      --shadow-md: 0 4px 16px rgba(0,0,0,0.45);
+      --shadow-lg: 0 8px 40px rgba(0,0,0,0.6);
+      --shadow-glow: 0 0 40px var(--accent-glow);
+
+      /* Spacing */
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 24px;
+      --space-xl: 40px;
+      --space-2xl: 64px;
+
+      /* Transitions */
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --duration-fast: 150ms;
+      --duration-normal: 300ms;
+      --duration-slow: 500ms;
+      --duration-reveal: 700ms;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       Reset & Base
+       ═══════════════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg-root);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       Ambient Background Effects
+       ═══════════════════════════════════════════════════ */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 20% 50%, rgba(12, 230, 242, 0.04) 0%, transparent 70%),
+        radial-gradient(ellipse 40% 60% at 85% 30%, rgba(0, 184, 212, 0.03) 0%, transparent 70%),
+        radial-gradient(ellipse 30% 40% at 50% 80%, rgba(12, 230, 242, 0.02) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Subtle grid overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(12, 230, 242, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(12, 230, 242, 0.03) 1px, transparent 1px);
+      background-size: 64px 64px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       Layout
+       ═══════════════════════════════════════════════════ */
+    .app-container {
+      position: relative;
+      z-index: 1;
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: var(--space-lg) var(--space-lg) var(--space-xl);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    .header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: var(--space-xl) 0 var(--space-lg);
+      text-align: center;
+    }
+
+    .header-icon {
+      width: 48px;
+      height: 48px;
+      margin-bottom: var(--space-md);
+      opacity: 0.8;
+    }
+
+    .header-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .header h1 {
+      font-family: 'Sora', sans-serif;
+      font-weight: 600;
+      font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--text-primary) 0%, #c4d4e8 50%, var(--accent-primary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header .subtitle {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-top: var(--space-sm);
+      padding: 4px 12px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 100px;
+      background: var(--bg-surface);
+    }
+
+    /* ── Main Two-Panel ─────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-lg);
+      flex: 1;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--bg-glass);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      padding: var(--space-lg);
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-lg);
+      transition: border-color var(--duration-normal) var(--ease-out),
+                  box-shadow var(--duration-normal) var(--ease-out);
+    }
+
+    .panel:hover {
+      border-color: var(--border-visible);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding-bottom: var(--space-md);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .panel-header .panel-icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      color: var(--accent-primary);
+    }
+
+    .panel-header h2 {
+      font-family: 'Sora', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    .panel-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 100px;
+      background: rgba(12, 230, 242, 0.1);
+      color: var(--accent-primary);
+      border: 1px solid rgba(12, 230, 242, 0.2);
+      margin-left: auto;
+    }
+
+    /* ──────────────────────────────────────────────
+       LEFT PANEL — Converter
+       ────────────────────────────────────────────── */
+
+    /* ── Drop Zone ──────────────────────────────── */
+    .drop-zone {
+      position: relative;
+      border: 2px dashed var(--border-visible);
+      border-radius: var(--radius-lg);
+      padding: var(--space-2xl) var(--space-lg);
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--duration-normal) var(--ease-out);
+      background: var(--bg-surface);
+      overflow: hidden;
+    }
+
+    .drop-zone::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at center, var(--accent-glow) 0%, transparent 70%);
+      opacity: 0;
+      transition: opacity var(--duration-normal) var(--ease-out);
+    }
+
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent-primary);
+      border-style: solid;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .drop-zone:hover::before,
+    .drop-zone.drag-over::before {
+      opacity: 0.5;
+    }
+
+    .drop-zone.drag-over {
+      transform: scale(1.01);
+      background: var(--bg-overlay);
+    }
+
+    .drop-zone-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .drop-icon {
+      width: 56px;
+      height: 56px;
+      color: var(--text-muted);
+      transition: all var(--duration-normal) var(--ease-out);
+    }
+
+    .drop-zone:hover .drop-icon,
+    .drop-zone.drag-over .drop-icon {
+      color: var(--accent-primary);
+      transform: translateY(-2px);
+    }
+
+    .drop-zone h3 {
+      font-family: 'Sora', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .drop-zone p {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .drop-zone .file-formats {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      letter-spacing: 0.03em;
+    }
+
+    .file-input-hidden {
+      display: none;
+    }
+
+    /* ── File Info Bar ──────────────────────────── */
+    .file-info {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      padding: var(--space-md);
+      background: var(--bg-surface);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+      animation: slideUp var(--duration-normal) var(--ease-spring);
+    }
+
+    .file-info .file-icon {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+      color: var(--accent-primary);
+    }
+
+    .file-details {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .file-details .file-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-details .file-size {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .file-remove {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--duration-fast) var(--ease-out);
+      flex-shrink: 0;
+    }
+
+    .file-remove:hover {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--accent-danger);
+    }
+
+    /* ── Format Badge ──────────────────────────── */
+    .format-display {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      padding: var(--space-md) var(--space-lg);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      animation: slideUp var(--duration-normal) var(--ease-spring);
+    }
+
+    .format-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .format-badge.onde {
+      background: rgba(12, 230, 242, 0.15);
+      color: #0ce6f2;
+      border: 1px solid rgba(12, 230, 242, 0.3);
+      box-shadow: 0 0 16px rgba(12, 230, 242, 0.15);
+    }
+
+    .format-badge.nde {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+    }
+
+    .format-arrow {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      animation: pulse-arrow 2s ease-in-out infinite;
+    }
+
+    .format-target {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      opacity: 0.6;
+    }
+
+    /* ── Convert Button ─────────────────────────── */
+    .convert-btn {
+      position: relative;
+      width: 100%;
+      padding: 14px 24px;
+      border: none;
+      border-radius: var(--radius-md);
+      font-family: 'Sora', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      color: var(--bg-root);
+      background: linear-gradient(135deg, #0ce6f2 0%, #0097a7 100%);
+      box-shadow: 0 4px 24px rgba(12, 230, 242, 0.3);
+      transition: all var(--duration-normal) var(--ease-out);
+      overflow: hidden;
+    }
+
+    .convert-btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+      transform: translateX(-100%);
+      transition: transform 0.5s ease;
+    }
+
+    .convert-btn:hover:not(:disabled)::after {
+      transform: translateX(100%);
+    }
+
+    .convert-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 32px rgba(12, 230, 242, 0.45);
+    }
+
+    .convert-btn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .convert-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      filter: grayscale(0.5);
+    }
+
+    .convert-btn.processing {
+      background: linear-gradient(135deg, var(--bg-overlay) 0%, var(--bg-surface) 100%);
+      color: var(--text-secondary);
+      box-shadow: none;
+    }
+
+    /* ── Test file generator ────────────────────── */
+    .test-gen-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-sm);
+      width: 100%;
+      padding: 10px var(--space-md);
+      margin-top: var(--space-sm);
+      background: var(--bg-overlay);
+      border: 1px dashed var(--border-visible);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all var(--duration-fast) var(--ease-out);
+    }
+    .test-gen-btn:hover {
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+      background: rgba(12, 230, 242, 0.05);
+    }
+
+    /* ── Progress ──────────────────────────────── */
+    .progress-container {
+      overflow: hidden;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      animation: slideUp var(--duration-normal) var(--ease-spring);
+    }
+
+    .progress-bar {
+      height: 4px;
+      background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+      border-radius: var(--radius-sm);
+      transition: width 0.5s var(--ease-out);
+      position: relative;
+    }
+
+    .progress-bar::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,0.3) 30%,
+        transparent 60%);
+      animation: shimmer 1.5s infinite;
+    }
+
+    .progress-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      text-align: center;
+      padding: var(--space-sm) 0;
+    }
+
+    /* ── Stats ──────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-sm);
+      animation: slideUp var(--duration-normal) var(--ease-spring);
+    }
+
+    .stat-card {
+      text-align: center;
+      padding: var(--space-md) var(--space-sm);
+      background: var(--bg-surface);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: var(--accent-primary);
+    }
+
+    .stat-value.warn {
+      color: var(--accent-warm);
+    }
+
+    .stat-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 2px;
+    }
+
+    /* ── Download Button ───────────────────────── */
+    .download-btn {
+      width: 100%;
+      padding: 12px 20px;
+      border: 2px solid var(--accent-primary);
+      border-radius: var(--radius-md);
+      font-family: 'Sora', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      color: var(--accent-primary);
+      background: rgba(12, 230, 242, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-sm);
+      transition: all var(--duration-normal) var(--ease-out);
+      animation: slideUp var(--duration-normal) var(--ease-spring);
+    }
+
+    .download-btn:hover {
+      background: rgba(12, 230, 242, 0.15);
+      box-shadow: 0 0 24px rgba(12, 230, 242, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .download-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* ── Error Display ─────────────────────────── */
+    .error-display {
+      padding: var(--space-md);
+      border-radius: var(--radius-md);
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-sm);
+      animation: slideUp var(--duration-normal) var(--ease-spring);
+    }
+
+    .error-display svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* ═══════════════════════════════════════════════
+       RIGHT PANEL — Mapping Reference
+       ═══════════════════════════════════════════════ */
+    .mapping-controls {
+      display: flex;
+      gap: var(--space-sm);
+      flex-wrap: wrap;
+    }
+
+    .filter-chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 100px;
+      border: 1px solid var(--border-subtle);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--duration-fast) var(--ease-out);
+      white-space: nowrap;
+    }
+
+    .filter-chip:hover {
+      border-color: var(--border-visible);
+      color: var(--text-secondary);
+      background: var(--bg-surface);
+    }
+
+    .filter-chip.active {
+      background: rgba(12, 230, 242, 0.12);
+      border-color: rgba(12, 230, 242, 0.3);
+      color: var(--accent-primary);
+    }
+
+    .search-input {
+      flex: 1;
+      min-width: 140px;
+      padding: 6px 12px;
+      border-radius: 100px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.75rem;
+      transition: all var(--duration-fast) var(--ease-out);
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--border-accent);
+      box-shadow: 0 0 0 3px rgba(12, 230, 242, 0.08);
+    }
+
+    .search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* ── Mapping Sections ──────────────────────── */
+    .mapping-list {
+      max-height: 500px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      scroll-behavior: smooth;
+    }
+
+    .mapping-list::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .mapping-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .mapping-list::-webkit-scrollbar-thumb {
+      background: var(--border-visible);
+      border-radius: 2px;
+    }
+
+    .mapping-category {
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--bg-surface);
+      transition: border-color var(--duration-fast) var(--ease-out);
+    }
+
+    .mapping-category:hover {
+      border-color: var(--border-visible);
+    }
+
+    .category-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: 10px var(--space-md);
+      cursor: pointer;
+      user-select: none;
+      transition: background var(--duration-fast) var(--ease-out);
+    }
+
+    .category-header:hover {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .category-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--text-muted);
+      transition: transform var(--duration-normal) var(--ease-out);
+    }
+
+    .category-header.open .category-icon {
+      transform: rotate(90deg);
+      color: var(--accent-primary);
+    }
+
+    .category-title {
+      font-family: 'Sora', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      flex: 1;
+    }
+
+    .category-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      color: var(--text-muted);
+    }
+
+    .category-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height var(--duration-slow) var(--ease-out);
+    }
+
+    .category-body.open {
+      max-height: 2000px;
+    }
+
+    .mapping-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.72rem;
+    }
+
+    .mapping-table th {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      padding: 8px var(--space-md);
+      text-align: left;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-elevated);
+    }
+
+    .mapping-table td {
+      padding: 7px var(--space-md);
+      border-bottom: 1px solid rgba(139, 149, 168, 0.05);
+      color: var(--text-secondary);
+      vertical-align: top;
+    }
+
+    .mapping-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .mapping-table tr:hover td {
+      background: rgba(255,255,255,0.015);
+    }
+
+    .mapping-table .field-onde {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: #0ce6f2;
+    }
+
+    .mapping-table .field-nde {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: #f59e0b;
+    }
+
+    .mapping-table .field-type {
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .mapping-arrow-cell {
+      text-align: center;
+      width: 40px;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .mapping-table .direction-header {
+      text-align: center;
+    }
+
+    .mapping-empty {
+      padding: var(--space-xl);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    /* ── Direction Toggle ──────────────────────── */
+    .direction-toggle {
+      display: flex;
+      border-radius: 100px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+      width: fit-content;
+    }
+
+    .direction-toggle button {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 5px 14px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--duration-fast) var(--ease-out);
+    }
+
+    .direction-toggle button.active {
+      background: rgba(12, 230, 242, 0.12);
+      color: var(--accent-primary);
+    }
+
+    /* ═══════════════════════════════════════════════
+       Footer
+       ═══════════════════════════════════════════════ */
+    .footer {
+      margin-top: var(--space-xl);
+      padding-top: var(--space-lg);
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: var(--space-md);
+    }
+
+    .footer-info {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .footer-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      padding: 3px 10px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 100px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: var(--space-md);
+    }
+
+    .footer-link {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color var(--duration-fast) var(--ease-out);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .footer-link:hover {
+      color: var(--accent-primary);
+    }
+
+    .footer-link svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    /* ═══════════════════════════════════════════════
+       Animations
+       ═══════════════════════════════════════════════ */
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes shimmer {
+      from { transform: translateX(-100%); }
+      to   { transform: translateX(200%); }
+    }
+
+    @keyframes pulse-arrow {
+      0%, 100% { opacity: 0.4; transform: scale(1); }
+      50%      { opacity: 1;   transform: scale(1.1); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .fade-in {
+      animation: fadeIn var(--duration-normal) var(--ease-out);
+    }
+
+    /* ═══════════════════════════════════════════════
+       Responsive
+       ═══════════════════════════════════════════════ */
+    @media (max-width: 900px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .app-container {
+        padding: var(--space-md);
+      }
+
+      .header h1 {
+        font-size: 1.3rem;
+      }
+
+      .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .mapping-list {
+        max-height: 350px;
+      }
+
+      .footer {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .stats-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .drop-zone {
+        padding: var(--space-xl) var(--space-md);
+      }
+
+      .mapping-table {
+        font-size: 0.65rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- ═══ HEADER ═══ -->
+  <header class="header">
+    <div class="header-icon">
+      <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="4" y="8" width="40" height="32" rx="4" stroke="#0ce6f2" stroke-width="1.5" fill="none"/>
+        <path d="M14 22h6M14 26h10M14 30h8" stroke="#0ce6f2" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
+        <circle cx="36" cy="21" r="5" stroke="#0ce6f2" stroke-width="1.2" fill="none"/>
+        <path d="M33 21l2 2 4-4" stroke="#0ce6f2" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="36" cy="31" r="5" stroke="#f59e0b" stroke-width="1.2" fill="none"/>
+        <path d="M33 31l2 2 4-4" stroke="#f59e0b" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M20 8V4M28 8V4" stroke="#0ce6f2" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
+        <path d="M36 36l5.5 5.5" stroke="#0ce6f2" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
+        <path d="M12 36l-5.5 5.5" stroke="#f59e0b" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
+      </svg>
+    </div>
+    <h1>Convertisseur ONDE ↔ NDE</h1>
+    <p class="subtitle">HDF5 Ultrasonic File Format Converter</p>
+  </header>
+
+  <!-- ═══ MAIN TWO-PANEL GRID ═══ -->
+  <main class="main-grid">
+
+    <!-- ━━━ LEFT PANEL: Converter ━━━ -->
+    <section class="panel" id="converter-panel">
+      <div class="panel-header">
+        <svg class="panel-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M4 17V3l6 4 6-4v14" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h2>Converter</h2>
+        <span class="panel-badge" id="panel-badge">ONDE ↔ NDE</span>
+      </div>
+
+      <!-- Drop Zone -->
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-zone-content">
+          <svg class="drop-icon" viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="8" y="6" width="40" height="44" rx="6" stroke-linejoin="round"/>
+            <path d="M18 24h20M18 30h12M18 36h16" stroke-linecap="round" opacity="0.5"/>
+            <path d="M36 42l4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M40 38v8" stroke-linecap="round"/>
+          </svg>
+          <h3>Drop your file here</h3>
+          <p>or click to browse</p>
+          <span class="file-formats">.h5 · .nde · .onde</span>
+        </div>
+        <input type="file" class="file-input-hidden" id="file-input" accept=".h5,.nde,.onde">
+      </div>
+
+      <!-- File Info (hidden initially) -->
+      <div class="file-info" id="file-info" style="display: none;">
+        <svg class="file-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="5" y="3" width="22" height="26" rx="3"/>
+          <path d="M10 12h12M10 17h8M10 22h10" stroke-linecap="round" opacity="0.5"/>
+        </svg>
+        <div class="file-details">
+          <div class="file-name" id="file-name">—</div>
+          <div class="file-size" id="file-size">—</div>
+        </div>
+        <button class="file-remove" id="file-remove" title="Remove file">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M3 3l8 8M11 3l-8 8"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Format Detection Display (hidden initially) -->
+      <div class="format-display" id="format-display" style="display: none;">
+        <span class="format-badge onde" id="format-badge-source">ONDE</span>
+        <span class="format-arrow">→</span>
+        <span class="format-badge nde" id="format-badge-target">NDE</span>
+        <span class="format-target" id="format-version"></span>
+      </div>
+
+      <!-- Convert Button -->
+      <button class="convert-btn" id="convert-btn" disabled>
+        <span id="convert-btn-text">Select a file to convert</span>
+      </button>
+
+      <!-- Test file generator -->
+      <button class="test-gen-btn" id="test-gen-btn" title="Generates a minimal valid NDE file for testing">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10" stroke-linecap="round"/></svg>
+        Generate test NDE file
+      </button>
+
+      <!-- Progress -->
+      <div class="progress-container" id="progress-container" style="display: none;">
+        <div class="progress-bar" id="progress-bar" style="width: 0%;"></div>
+        <div class="progress-text" id="progress-text">Initializing…</div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" id="stats-grid" style="display: none;">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-datasets">0</div>
+          <div class="stat-label">Datasets</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-groups">0</div>
+          <div class="stat-label">Groups</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value warn" id="stat-warnings">0</div>
+          <div class="stat-label">Warnings</div>
+        </div>
+      </div>
+
+      <!-- Download Button (hidden initially) -->
+      <button class="download-btn" id="download-btn" style="display: none;">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 3v8M5 8l4 4 4-4M3 13v2h12v-2"/>
+        </svg>
+        Download Converted File
+      </button>
+
+      <!-- Error Display (hidden initially) -->
+      <div class="error-display" id="error-display" style="display: none;">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <circle cx="9" cy="9" r="7"/>
+          <path d="M9 6v3M9 12h.01"/>
+        </svg>
+        <span id="error-message"></span>
+      </div>
+    </section>
+
+    <!-- ━━━ RIGHT PANEL: Mapping Reference ━━━ -->
+    <section class="panel" id="mapping-panel">
+      <div class="panel-header">
+        <svg class="panel-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="3" width="16" height="14" rx="2"/>
+          <path d="M6 8h8M6 12h5" stroke-linecap="round" opacity="0.5"/>
+        </svg>
+        <h2>Field Mapping Reference</h2>
+        <span class="panel-badge" id="mapping-count">0 fields</span>
+      </div>
+
+      <!-- Controls -->
+      <div class="mapping-controls">
+        <div class="direction-toggle" id="direction-toggle">
+          <button class="active" data-dir="onde-to-nde">ONDE → NDE</button>
+          <button data-dir="nde-to-onde">NDE → ONDE</button>
+        </div>
+        <input type="text" class="search-input" id="mapping-search" placeholder="Filter fields…">
+      </div>
+
+      <!-- Mapping List -->
+      <div class="mapping-list" id="mapping-list">
+        <div class="mapping-empty">Loading mapping data…</div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer class="footer">
+    <div class="footer-info">
+      <span class="footer-badge">ONDE v0.9.0</span>
+      <span class="footer-badge">NDE v4.2.0</span>
+      <span class="footer-badge">HDF5</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://www.cofrend.com/" target="_blank" rel="noopener" class="footer-link">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 1h6v6M11 1L1 11"/></svg>
+        COFREND ONDE
+      </a>
+      <a href="https://www.evidentscientific.com/" target="_blank" rel="noopener" class="footer-link">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 1h6v6M11 1L1 11"/></svg>
+        EVIDENT NDE 4.2.0
+      </a>
+      <a href="https://www.hdfgroup.org/" target="_blank" rel="noopener" class="footer-link">
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 1h6v6M11 1L1 11"/></svg>
+        HDF Group
+      </a>
+    </div>
+  </footer>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     Application Script
+     ═══════════════════════════════════════════════ -->
+<script type="module">
+  import { convert } from './src/converter.js';
+  import {
+    ONDE_TO_NDE,
+    NDE_TO_ONDE,
+    detectFormat
+  } from './src/mapping.js';
+
+  // ═══ STATE ═══════════════════════════════════
+  const state = {
+    file: null,
+    fileBuffer: null,
+    detectedFormat: null,
+    detectedVersion: null,
+    convertedBuffer: null,
+    convertedFormat: null,
+    conversionStats: null,
+    isProcessing: false
+  };
+
+  // ═══ DOM REFS ═══════════════════════════════
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  const dom = {
+    dropZone: $('#drop-zone'),
+    fileInput: $('#file-input'),
+    fileInfo: $('#file-info'),
+    fileName: $('#file-name'),
+    fileSize: $('#file-size'),
+    fileRemove: $('#file-remove'),
+    formatDisplay: $('#format-display'),
+    formatBadgeSource: $('#format-badge-source'),
+    formatBadgeTarget: $('#format-badge-target'),
+    formatVersion: $('#format-version'),
+    convertBtn: $('#convert-btn'),
+    convertBtnText: $('#convert-btn-text'),
+    testGenBtn: $('#test-gen-btn'),
+    progressContainer: $('#progress-container'),
+    progressBar: $('#progress-bar'),
+    progressText: $('#progress-text'),
+    statsGrid: $('#stats-grid'),
+    statDatasets: $('#stat-datasets'),
+    statGroups: $('#stat-groups'),
+    statWarnings: $('#stat-warnings'),
+    downloadBtn: $('#download-btn'),
+    errorDisplay: $('#error-display'),
+    errorMessage: $('#error-message'),
+    // Mapping panel
+    mappingList: $('#mapping-list'),
+    mappingSearch: $('#mapping-search'),
+    mappingCount: $('#mapping-count'),
+    directionToggle: $('#direction-toggle'),
+  };
+
+  // ═══ FILE HANDLING ═══════════════════════════
+  function formatSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  async function handleFile(file) {
+    // Reset
+    resetUI();
+
+    if (!file) return;
+
+    // Validate extension
+    const validExts = ['.h5', '.nde', '.onde'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!validExts.includes(ext)) {
+      showError(`Unsupported file type: "${ext}". Please use .h5, .nde, or .onde files.`);
+      return;
+    }
+
+    state.file = file;
+
+    // Read buffer
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      state.fileBuffer = new Uint8Array(arrayBuffer);
+    } catch (e) {
+      showError(`Failed to read file: ${e.message}`);
+      return;
+    }
+
+    // Show file info
+    dom.fileName.textContent = file.name;
+    dom.fileSize.textContent = formatSize(file.size);
+    dom.fileInfo.style.display = 'flex';
+    animateIn(dom.fileInfo);
+
+    // Detect format
+    try {
+      await detectFileFormat();
+    } catch (e) {
+      showError(`Format detection failed: ${e.message}`);
+    }
+  }
+
+  async function detectFileFormat() {
+    if (!state.fileBuffer) return;
+
+    const h5wasm = globalThis.h5wasm;
+    if (!h5wasm || !globalThis.__h5wasmReady) {
+      showError('HDF5 engine not ready yet. Please wait a moment and try again.');
+      return;
+    }
+
+    const { FS } = h5Module;
+
+    const detectPath = `_detect_${Date.now()}.h5`;
+    FS.writeFile(detectPath, state.fileBuffer);
+
+    let h5file;
+    try {
+      h5file = new h5wasm.File(detectPath, 'r');
+    } catch (e) {
+      FS.unlink(detectPath);
+      showError(`Cannot open HDF5 file: ${e.message}`);
+      return;
+    }
+
+    const detected = detectFormat(h5file);
+    h5file.close();
+    try { FS.unlink(detectPath); } catch (_) {}
+
+    if (detected.format === 'unknown') {
+      showError('Unknown format: this file is neither ONDE nor NDE.');
+      return;
+    }
+
+    state.detectedFormat = detected.format;
+    state.detectedVersion = detected.version;
+
+    // Update UI
+    dom.formatBadgeSource.className = `format-badge ${detected.format}`;
+    dom.formatBadgeSource.textContent = detected.format.toUpperCase();
+    dom.formatBadgeTarget.className = `format-badge ${detected.format === 'onde' ? 'nde' : 'onde'}`;
+    dom.formatBadgeTarget.textContent = detected.format === 'onde' ? 'NDE' : 'ONDE';
+    dom.formatVersion.textContent = `v${detected.version || '?'}`;
+    dom.formatDisplay.style.display = 'flex';
+    animateIn(dom.formatDisplay);
+
+    // Enable convert button
+    dom.convertBtn.disabled = false;
+    dom.convertBtnText.textContent = `Convert ${detected.format.toUpperCase()} → ${detected.format === 'onde' ? 'NDE' : 'ONDE'}`;
+    dom.convertBtn.classList.remove('processing');
+
+    clearError();
+  }
+
+  // ═══ CONVERSION ═══════════════════════════════
+  async function runConversion() {
+    if (!state.fileBuffer || !state.detectedFormat || state.isProcessing) return;
+
+    state.isProcessing = true;
+    hideError();
+    hideStats();
+    hideDownload();
+
+    // Show progress
+    dom.progressContainer.style.display = 'block';
+    dom.progressBar.style.width = '10%';
+    dom.progressText.textContent = 'Initializing conversion…';
+    dom.convertBtn.disabled = true;
+    dom.convertBtn.classList.add('processing');
+    dom.convertBtnText.textContent = 'Converting…';
+
+    let progressInterval;
+    try {
+      // Simulate progress updates
+      progressInterval = setInterval(() => {
+        const current = parseFloat(dom.progressBar.style.width) || 0;
+        if (current < 85) {
+          const increment = Math.random() * 15 + 3;
+          const next = Math.min(current + increment, 85);
+          dom.progressBar.style.width = `${next}%`;
+          if (next < 30) dom.progressText.textContent = 'Reading HDF5 structure…';
+          else if (next < 55) dom.progressText.textContent = 'Remapping metadata…';
+          else if (next < 80) dom.progressText.textContent = 'Copying data arrays…';
+        }
+      }, 400);
+
+      const result = await convert(state.fileBuffer.buffer);
+
+      clearInterval(progressInterval);
+
+      // Complete
+      dom.progressBar.style.width = '100%';
+      dom.progressText.textContent = 'Conversion complete ✓';
+      setTimeout(() => {
+        dom.progressContainer.style.display = 'none';
+      }, 1500);
+
+      // If the output is ONDE format, use the ref module to fix up
+      // HDF5 object references (h5wasm can only write plain strings)
+      let outputBuffer = result.buffer;
+      if (result.format === 'onde') {
+        outputBuffer = await applyHdf5References(outputBuffer);
+      }
+
+      state.convertedBuffer = outputBuffer;
+      state.convertedFormat = result.format;
+      state.conversionStats = result.stats;
+
+      // Show stats
+      showStats(result.stats);
+
+      // Show download
+      const targetExt = result.format === 'nde' ? '.nde' : '.onde';
+      const originalName = state.file.name.replace(/\.(h5|nde|onde)$/i, '');
+      const downloadName = `${originalName}_converted${targetExt}`;
+      dom.downloadBtn.style.display = 'flex';
+      animateIn(dom.downloadBtn);
+      dom.downloadBtn.onclick = () => triggerDownload(state.convertedBuffer, downloadName);
+
+      // Reset convert button
+      dom.convertBtn.classList.remove('processing');
+      dom.convertBtn.disabled = false;
+      dom.convertBtnText.textContent = `Convert ${state.detectedFormat.toUpperCase()} → ${state.detectedFormat === 'onde' ? 'NDE' : 'ONDE'}`;
+
+    } catch (e) {
+      dom.progressContainer.style.display = 'none';
+      dom.convertBtn.classList.remove('processing');
+      dom.convertBtn.disabled = false;
+      dom.convertBtnText.textContent = `Convert ${state.detectedFormat.toUpperCase()} → ${state.detectedFormat === 'onde' ? 'NDE' : 'ONDE'}`;
+      showError(`Conversion failed: ${e.message}`);
+    } finally {
+      state.isProcessing = false;
+    }
+  }
+
+  function showStats(stats) {
+    dom.statDatasets.textContent = stats.datasetsProcessed || 0;
+    dom.statGroups.textContent = stats.groupsProcessed || 0;
+    dom.statWarnings.textContent = (stats.warnings || []).length;
+    dom.statsGrid.style.display = 'grid';
+    animateIn(dom.statsGrid);
+  }
+
+  function hideStats() {
+    dom.statsGrid.style.display = 'none';
+  }
+
+  function hideDownload() {
+    dom.downloadBtn.style.display = 'none';
+  }
+
+  function triggerDownload(buffer, filename) {
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ═══ UI HELPERS ═══════════════════════════════
+  function showError(msg) {
+    dom.errorMessage.textContent = msg;
+    dom.errorDisplay.style.display = 'flex';
+    animateIn(dom.errorDisplay);
+  }
+
+  function clearError() {
+    dom.errorDisplay.style.display = 'none';
+  }
+
+  function hideError() {
+    dom.errorDisplay.style.display = 'none';
+  }
+
+  function resetUI() {
+    state.file = null;
+    state.fileBuffer = null;
+    state.detectedFormat = null;
+    state.detectedVersion = null;
+    state.convertedBuffer = null;
+    state.convertedFormat = null;
+    state.conversionStats = null;
+    state.isProcessing = false;
+
+    dom.fileInfo.style.display = 'none';
+    dom.formatDisplay.style.display = 'none';
+    dom.convertBtn.disabled = true;
+    dom.convertBtnText.textContent = 'Select a file to convert';
+    dom.convertBtn.classList.remove('processing');
+    dom.progressContainer.style.display = 'none';
+    dom.progressBar.style.width = '0%';
+    dom.statsGrid.style.display = 'none';
+    dom.downloadBtn.style.display = 'none';
+    dom.errorDisplay.style.display = 'none';
+  }
+
+  function animateIn(el) {
+    el.classList.remove('fade-in');
+    void el.offsetWidth; // reflow
+    el.classList.add('fade-in');
+  }
+
+  // ═══ EVENT LISTENERS ═══════════════════════════
+  dom.dropZone.addEventListener('click', () => dom.fileInput.click());
+
+  dom.dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dom.dropZone.classList.add('drag-over');
+  });
+
+  dom.dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dom.dropZone.classList.remove('drag-over');
+  });
+
+  dom.dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dom.dropZone.classList.remove('drag-over');
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      handleFile(files[0]);
+    }
+  });
+
+  dom.fileInput.addEventListener('change', () => {
+    const files = dom.fileInput.files;
+    if (files && files.length > 0) {
+      handleFile(files[0]);
+    }
+    dom.fileInput.value = '';
+  });
+
+  dom.fileRemove.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resetUI();
+  });
+
+  dom.convertBtn.addEventListener('click', () => {
+    if (!state.isProcessing && state.fileBuffer && state.detectedFormat) {
+      runConversion();
+    }
+  });
+
+  // ═══ TEST FILE GENERATOR ═══════════════════════
+  dom.testGenBtn.addEventListener('click', async () => {
+    const h5wasm = globalThis.h5wasm;
+    if (!h5wasm || !globalThis.__h5wasmReady) {
+      showError('HDF5 engine not ready. Please wait and retry.');
+      return;
+    }
+    try {
+      await generateTestNdeFile();
+    } catch (e) {
+      showError(`Test file generation failed: ${e.message}`);
+    }
+  });
+
+  async function generateTestNdeFile() {
+    const h5wasm = globalThis.h5wasm;
+    const { FS } = h5Module;
+
+    // Create a minimal valid NDE file with one AScan group
+    const testName = `test_input_${Date.now()}.nde`;
+    const f = new h5wasm.File(testName, 'w');
+
+    // /Properties
+    const props = JSON.stringify({
+      $schema: './Properties-Schema-4.2.0.json',
+      file: { creationDate: new Date().toISOString(), formatVersion: '4.2.0',
+        createdByAppName: 'Test Generator', description: 'Minimal NDE test file' },
+      methods: ['UT']
+    });
+    f.create_dataset({ name: 'Properties', data: new TextEncoder().encode(props), dtype: '<u1' });
+
+    // /Public/Setup
+    const setup = JSON.stringify({
+      $schema: './Setup-Schema-4.2.0.json', version: '4.2.0', scenario: 'General Mapping',
+      groups: [{
+        id: 0, name: 'Test Group',
+        datasets: [{
+          id: 0, name: '0-AScanAmplitude', dataClass: 'AScanAmplitude',
+          storageMode: 'Independent',
+          dataValue: { min: -32768, max: 32767, unitMin: 0, unitMax: 100, unit: 'Percent' },
+          path: '/Public/Groups/0/Datasets/0-AScanAmplitude',
+          dimensions: [
+            { axis: 'UCoordinate', quantity: 'Length', resolution: 0.001, offset: 0 },
+            { axis: 'Ultrasound', quantity: 'Time', resolution: 1e-8, offset: 0 }
+          ]
+        }],
+        processes: [{
+          id: 0, implementation: 'Hardware',
+          ultrasonicConventional: { pulseEcho: { probeId: 0 }, waveMode: 'Longitudinal',
+            velocity: 5920, wedgeDelay: 0, rectification: 'None',
+            beams: [{ id: 0, refractedAngle: 0, ascanStart: 0, ascanLength: 1e-4 }] }
+        }]
+      }],
+      specimens: [{ id: 0, plateGeometry: { thickness: 0.025,
+        material: { name: 'Steel', longitudinalWave: { nominalVelocity: 5920 },
+          transversalVerticalWave: { nominalVelocity: 3230 } },
+        surfaces: [{ id: 0, name: 'Top' }, { id: 1, name: 'Bottom' }] }}],
+      probes: [{ id: 0, model: 'Test Probe',
+        conventionalRound: { centralFrequency: 5e6, diameter: 0.0127,
+          elements: [{ id: 0, acquisitionUnitId: 0, connectorName: 'CH1' }] }}]
+    });
+    f.create_group('/Public');
+    f.get('/Public').create_dataset({ name: 'Setup', data: new TextEncoder().encode(setup), dtype: '<u1' });
+
+    // /Public/Groups/0/Datasets with dummy AScan data
+    f.create_group('/Public/Groups');
+    f.create_group('/Public/Groups/0');
+    f.create_group('/Public/Groups/0/Datasets');
+    const dummyData = new Int16Array(1000);
+    for (let i = 0; i < 1000; i++) dummyData[i] = Math.round(i * 10); // 0 to 9990, realistic ADC range
+    f.get('/Public/Groups/0/Datasets').create_dataset({ name: '0-AScanAmplitude', data: dummyData });
+    f.create_group('/Private');
+    f.close();
+
+    const buf = FS.readFile(testName);
+    FS.unlink(testName);
+
+    const blob = new Blob([buf], { type: 'application/octet-stream' });
+    const file = new File([blob], 'test_minimal.nde', { type: 'application/octet-stream' });
+    console.log('[test-gen] created test file:', file.name, file.size, 'bytes');
+
+    // Auto-load and detect
+    resetUI();
+    state.file = file;
+    const ab = await file.arrayBuffer();
+    state.fileBuffer = new Uint8Array(ab);
+    dom.fileName.textContent = file.name;
+    dom.fileSize.textContent = formatSize(file.size);
+    dom.fileInfo.style.display = 'flex';
+    animateIn(dom.fileInfo);
+
+    await detectFileFormat();
+  }
+
+  // ═══ MAPPING REFERENCE TABLE ═══════════════════════════
+
+  /**
+   * Build flattened mapping entries from ONDE_TO_NDE for display
+   */
+  function buildMappingEntries(direction) {
+    const entries = [];
+    const source = direction === 'onde-to-nde' ? ONDE_TO_NDE : NDE_TO_ONDE;
+
+    // File Identity
+    if (direction === 'onde-to-nde') {
+      entries.push({
+        category: 'File Identity',
+        ondeField: 'ONDE:FILETYPE (attr)',
+        ndeField: '/Properties: methods=["UT"]',
+        type: 'string'
+      });
+      entries.push({
+        category: 'File Identity',
+        ondeField: 'ONDE:VERSION (attr)',
+        ndeField: '/Properties: file.formatVersion',
+        type: 'string'
+      });
+    }
+
+    // Dataset Types
+    if (direction === 'onde-to-nde' && source.datasetClassMapping) {
+      for (const [ondeType, classMap] of Object.entries(source.datasetClassMapping)) {
+        for (const [key, ndeClass] of Object.entries(classMap)) {
+          entries.push({
+            category: 'Dataset Type',
+            ondeField: `${ondeType} (${key})`,
+            ndeField: `dataClass: "${ndeClass}"`,
+            type: 'class'
+          });
+        }
+      }
+    }
+
+    if (direction === 'nde-to-onde' && source.dataClassToOndeType) {
+      for (const [ndeClass, ondeInfo] of Object.entries(source.dataClassToOndeType)) {
+        entries.push({
+          category: 'Dataset Type',
+          ondeField: ondeInfo.type,
+          ndeField: `dataClass: "${ndeClass}"`,
+          type: 'class'
+        });
+      }
+    }
+
+    // Ultrasonic Setup
+    if (direction === 'onde-to-nde' && source.setup?.ultrasonic) {
+      for (const [ondeKey, mapping] of Object.entries(source.setup.ultrasonic)) {
+        let typeInfo = mapping.type;
+        if (mapping.map) {
+          typeInfo = 'mapping (' + Object.keys(mapping.map).length + ' values)';
+        }
+        entries.push({
+          category: 'Ultrasonic Setup',
+          ondeField: ondeKey,
+          ndeField: mapping.nde,
+          type: typeInfo
+        });
+      }
+    }
+
+    // NDE → ONDE ultrasonic
+    if (direction === 'nde-to-onde') {
+      if (source.rectificationMap) {
+        for (const [ndeVal, ondeVal] of Object.entries(source.rectificationMap)) {
+          entries.push({
+            category: 'Ultrasonic Setup',
+            ondeField: `RECTIFICATION = ${ondeVal}`,
+            ndeField: `rectification = "${ndeVal}"`,
+            type: 'mapping'
+          });
+        }
+      }
+      if (source.filterMap) {
+        for (const [ndeVal, ondeVal] of Object.entries(source.filterMap)) {
+          entries.push({
+            category: 'Ultrasonic Setup',
+            ondeField: `FILTER_TYPE = ${ondeVal}`,
+            ndeField: `filterType = "${ndeVal}"`,
+            type: 'mapping'
+          });
+        }
+      }
+    }
+
+    // Geometric Setup
+    if (direction === 'onde-to-nde' && source.setup?.geometric) {
+      for (const [ondeKey, mapping] of Object.entries(source.setup.geometric)) {
+        entries.push({
+          category: 'Geometric Setup',
+          ondeField: ondeKey,
+          ndeField: mapping.nde,
+          type: mapping.type
+        });
+      }
+    }
+
+    // Component mapping
+    if (direction === 'onde-to-nde' && source.component) {
+      for (const [ondeType, ndeGeom] of Object.entries(source.component)) {
+        entries.push({
+          category: 'Components',
+          ondeField: ondeType,
+          ndeField: ndeGeom,
+          type: 'geometry'
+        });
+      }
+    }
+    if (direction === 'nde-to-onde' && source.geometryToOndeType) {
+      for (const [ndeGeom, ondeType] of Object.entries(source.geometryToOndeType)) {
+        entries.push({
+          category: 'Components',
+          ondeField: ondeType,
+          ndeField: ndeGeom,
+          type: 'geometry'
+        });
+      }
+    }
+
+    // Probes
+    if (direction === 'onde-to-nde' && source.probe) {
+      for (const [ondeType, probeConfig] of Object.entries(source.probe)) {
+        entries.push({
+          category: 'Probes',
+          ondeField: `${ondeType} (type)`,
+          ndeField: `probe type: "${probeConfig.type}"`,
+          type: 'type'
+        });
+        if (probeConfig.mapping) {
+          for (const [ondeField, ndeField] of Object.entries(probeConfig.mapping)) {
+            entries.push({
+              category: 'Probes',
+              ondeField: `  ${ondeField}`,
+              ndeField: ndeField,
+              type: 'field'
+            });
+          }
+        }
+      }
+    }
+    if (direction === 'nde-to-onde' && source.probeTypeToOnde) {
+      for (const [ndeType, ondeConfig] of Object.entries(source.probeTypeToOnde)) {
+        entries.push({
+          category: 'Probes',
+          ondeField: ondeConfig.type,
+          ndeField: `probe type: "${ndeType}"`,
+          type: 'type'
+        });
+        if (ondeConfig.mapping) {
+          for (const [ndeField, ondeField] of Object.entries(ondeConfig.mapping)) {
+            entries.push({
+              category: 'Probes',
+              ondeField: ondeField,
+              ndeField: ndeField,
+              type: 'field'
+            });
+          }
+        }
+      }
+    }
+
+    // Coupling / Wedges
+    if (direction === 'onde-to-nde' && source.coupling) {
+      for (const [ondeType, couplConfig] of Object.entries(source.coupling)) {
+        entries.push({
+          category: 'Coupling / Wedges',
+          ondeField: `${ondeType} (type)`,
+          ndeField: `wedge type: "${couplConfig.type}"`,
+          type: 'type'
+        });
+        if (couplConfig.mapping) {
+          for (const [ondeField, ndeField] of Object.entries(couplConfig.mapping)) {
+            entries.push({
+              category: 'Coupling / Wedges',
+              ondeField: `  ${ondeField}`,
+              ndeField: ndeField,
+              type: 'field'
+            });
+          }
+        }
+      }
+    }
+    if (direction === 'nde-to-onde' && source.wedgeToOnde) {
+      for (const [ndeType, ondeConfig] of Object.entries(source.wedgeToOnde)) {
+        entries.push({
+          category: 'Coupling / Wedges',
+          ondeField: ondeConfig.type,
+          ndeField: `wedge type: "${ndeType}"`,
+          type: 'type'
+        });
+        if (ondeConfig.mapping) {
+          for (const [ndeField, ondeField] of Object.entries(ondeConfig.mapping)) {
+            entries.push({
+              category: 'Coupling / Wedges',
+              ondeField: ondeField,
+              ndeField: ndeField,
+              type: 'field'
+            });
+          }
+        }
+      }
+    }
+
+    // Phased Array
+    if (direction === 'onde-to-nde' && source.phasedArray) {
+      for (const [ondeType, ndeConfig] of Object.entries(source.phasedArray)) {
+        const ndeVal = typeof ndeConfig === 'string' ? ndeConfig :
+          typeof ndeConfig.nde === 'string' ? ndeConfig.nde :
+            JSON.stringify(ndeConfig.nde || ndeConfig);
+        entries.push({
+          category: 'Phased Array',
+          ondeField: ondeType,
+          ndeField: ndeVal,
+          type: 'process'
+        });
+      }
+    }
+    if (direction === 'nde-to-onde' && source.processToOndePASetup) {
+      for (const [ndeProc, ondeType] of Object.entries(source.processToOndePASetup)) {
+        entries.push({
+          category: 'Phased Array',
+          ondeField: ondeType,
+          ndeField: ndeProc,
+          type: 'process'
+        });
+      }
+    }
+
+    // Dimension mapping
+    if (direction === 'nde-to-onde' && source.axisToOndeDimension) {
+      for (const [ndeAxis, ondeDim] of Object.entries(source.axisToOndeDimension)) {
+        entries.push({
+          category: 'Dimensions',
+          ondeField: `${ondeDim.coordinate} (${ondeDim.units})`,
+          ndeField: ndeAxis,
+          type: 'axis'
+        });
+      }
+    }
+
+    return entries;
+  }
+
+  // ═══ RENDER MAPPING TABLE ═══════════════════════════
+  let currentDirection = 'onde-to-nde';
+  let allEntries = [];
+
+  function renderMappingTable(filterText = '') {
+    allEntries = buildMappingEntries(currentDirection);
+
+    const filtered = filterText
+      ? allEntries.filter(e =>
+          e.ondeField.toLowerCase().includes(filterText.toLowerCase()) ||
+          e.ndeField.toLowerCase().includes(filterText.toLowerCase()) ||
+          e.category.toLowerCase().includes(filterText.toLowerCase())
+        )
+      : allEntries;
+
+    // Group by category
+    const grouped = {};
+    for (const entry of filtered) {
+      if (!grouped[entry.category]) grouped[entry.category] = [];
+      grouped[entry.category].push(entry);
+    }
+
+    // Category order
+    const categoryOrder = [
+      'File Identity',
+      'Dataset Type',
+      'Ultrasonic Setup',
+      'Geometric Setup',
+      'Components',
+      'Probes',
+      'Coupling / Wedges',
+      'Phased Array',
+      'Dimensions'
+    ];
+
+    const orderedCategories = categoryOrder.filter(c => grouped[c]);
+
+    dom.mappingCount.textContent = `${filtered.length} fields`;
+
+    if (orderedCategories.length === 0) {
+      dom.mappingList.innerHTML = '<div class="mapping-empty">No matching fields</div>';
+      return;
+    }
+
+    let html = '';
+    for (const category of orderedCategories) {
+      const catEntries = grouped[category];
+      html += `
+        <div class="mapping-category">
+          <div class="category-header open" data-category="${category}">
+            <svg class="category-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M6 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="category-title">${category}</span>
+            <span class="category-count">${catEntries.length}</span>
+          </div>
+          <div class="category-body open">
+            <table class="mapping-table">
+              <thead>
+                <tr>
+                  <th>${currentDirection === 'onde-to-nde' ? 'ONDE Field' : 'NDE Field'}</th>
+                  <th class="direction-header">→</th>
+                  <th>${currentDirection === 'onde-to-nde' ? 'NDE Field' : 'ONDE Field'}</th>
+                  <th>Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${catEntries.map(e => {
+                  const sourceField = currentDirection === 'onde-to-nde' ? e.ondeField : e.ndeField;
+                  const targetField = currentDirection === 'onde-to-nde' ? e.ndeField : e.ondeField;
+                  const sourceClass = currentDirection === 'onde-to-nde' ? 'field-onde' : 'field-nde';
+                  const targetClass = currentDirection === 'onde-to-nde' ? 'field-nde' : 'field-onde';
+                  return `
+                    <tr>
+                      <td class="${sourceClass}">${escapeHtml(sourceField)}</td>
+                      <td class="mapping-arrow-cell">→</td>
+                      <td class="${targetClass}">${escapeHtml(targetField)}</td>
+                      <td class="field-type">${escapeHtml(e.type)}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    dom.mappingList.innerHTML = html;
+
+    // Attach collapse listeners
+    dom.mappingList.querySelectorAll('.category-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const body = header.nextElementSibling;
+        const isOpen = header.classList.contains('open');
+        header.classList.toggle('open');
+        body.classList.toggle('open');
+      });
+    });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ═══ MAPPING EVENTS ═══════════════════════════
+  dom.directionToggle.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      dom.directionToggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentDirection = btn.dataset.dir;
+      renderMappingTable(dom.mappingSearch.value);
+    });
+  });
+
+  let searchTimeout;
+  dom.mappingSearch.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      renderMappingTable(dom.mappingSearch.value);
+    }, 200);
+  });
+
+  // ═══ HDF5 REFERENCE MODULE HELPERS ══════════════════
+
+  /** Copy a JS string into WASM heap as a null-terminated C string */
+  function wasmString(mod, str) {
+    const len = new TextEncoder().encode(str).length;
+    const ptr = mod._malloc(len + 1);
+    mod.stringToUTF8(str, ptr, len + 1);
+    return ptr;
+  }
+  function freeWasmString(mod, ptr) { mod._free(ptr); }
+
+  /**
+   * Post-processing step: use the ref module to create real HDF5 object
+   * references for ONDE_DATASET:SETUP attributes on each dataset group.
+   * The main converter (via h5wasm) can only write these as plain strings.
+   */
+  async function applyHdf5References(buffer) {
+    const RefModule = globalThis.__refModule;
+    if (!RefModule) {
+      console.warn('[ref] RefModule not available, skipping reference fixup');
+      return buffer;
+    }
+
+    // Write the output buffer into the ref module's virtual filesystem
+    try {
+      RefModule.FS.writeFile('fixup.h5', new Uint8Array(buffer));
+    } catch (e) {
+      console.warn('[ref] FS.writeFile failed:', e.message);
+      return buffer;
+    }
+
+    // Open the file
+    const pathPtr = wasmString(RefModule, 'fixup.h5');
+    const fid = RefModule._h5r_open(pathPtr);
+    freeWasmString(RefModule, pathPtr);
+    if (fid < 0) {
+      console.warn('[ref] _h5r_open failed');
+      return buffer;
+    }
+
+    try {
+      const setupPath = '/ONDE_SETUP_UT';
+      const prefixes = ['/ascan_', '/tscan_', '/cscan_'];
+      let fixedCount = 0;
+
+      for (const prefix of prefixes) {
+        let idx = 0;
+        while (true) {
+          const groupPath = `${prefix}${idx}`;
+          const gPtr = wasmString(RefModule, groupPath);
+          const gid = RefModule._h5r_open_group(fid, gPtr);
+          freeWasmString(RefModule, gPtr);
+
+          if (gid < 0) break; // no more groups with this prefix
+
+          // Create an HDF5 object reference pointing to /ONDE_SETUP_UT
+          const refBuf = RefModule._malloc(8);
+          const targetPtr = wasmString(RefModule, setupPath);
+          RefModule._h5r_create_reference(fid, targetPtr, refBuf);
+          freeWasmString(RefModule, targetPtr);
+
+          // Read the 8 raw reference bytes
+          const refBytes = new Uint8Array(RefModule.HEAPU8.buffer, refBuf, 8);
+
+          // Store the reference bytes as a float64 attribute on the group.
+          // The 8 bytes of an HDF5 object reference, interpreted as IEEE 754 double,
+          // retain the exact bit pattern. The attribute name matches the one
+          // written by h5wasm so it overwrites the string value.
+          const refDouble = new Float64Array(refBytes.buffer, refBytes.byteOffset, 1)[0];
+          const attrPtr = wasmString(RefModule, 'ONDE_DATASET:SETUP');
+          RefModule._h5r_set_attr_double(gid, attrPtr, refDouble);
+          freeWasmString(RefModule, attrPtr);
+
+          RefModule._free(refBuf);
+          RefModule._h5r_close_obj(gid);
+          fixedCount++;
+          idx++;
+        }
+      }
+
+      console.log(`[ref] fixed ${fixedCount} dataset groups with HDF5 references`);
+    } finally {
+      RefModule._h5r_close(fid);
+    }
+
+    // Read back the fixed file
+    let fixedBuf;
+    try {
+      fixedBuf = RefModule.FS.readFile('fixup.h5');
+      RefModule.FS.unlink('fixup.h5');
+    } catch (e) {
+      console.warn('[ref] readback failed:', e.message);
+      return buffer;
+    }
+
+    return fixedBuf.buffer.slice(fixedBuf.byteOffset, fixedBuf.byteOffset + fixedBuf.byteLength);
+  }
+
+  // ═══ INITIALIZE ═══════════════════════════════
+  let h5Module = null;
+
+  async function init() {
+    const h5 = globalThis.h5wasm;
+    if (!h5) {
+      console.warn('h5wasm not found on globalThis');
+      renderMappingTable();
+      return;
+    }
+
+    try {
+      h5Module = await h5.ready;
+      globalThis.__h5wasmReady = true;
+      console.log('h5wasm initialized, HDF5 ready');
+    } catch (e) {
+      console.warn('h5wasm init failed:', e.message);
+    }
+
+    // Initialize HDF5 reference module for H5R support
+    if (typeof H5RefModule !== 'undefined') {
+      try {
+        const refMod = await H5RefModule();
+        globalThis.__refReady = true;
+        globalThis.__refModule = refMod;
+        console.log('H5RefModule initialized');
+      } catch (e) {
+        console.warn('H5RefModule init failed:', e.message);
+      }
+    } else {
+      console.log('H5RefModule not available (H5R features disabled)');
+    }
+
+    renderMappingTable();
+
+    // Staggered fade-in for panels
+    const panels = document.querySelectorAll('.panel');
+    panels.forEach((panel, i) => {
+      panel.style.opacity = '0';
+      panel.style.transform = 'translateY(20px)';
+      panel.style.transition = `all 0.6s ${0.15 * i}s cubic-bezier(0.16, 1, 0.3, 1)`;
+      requestAnimationFrame(() => {
+        panel.style.opacity = '1';
+        panel.style.transform = 'translateY(0)';
+      });
+    });
+  }
+
+  init();
+</script>
+
+</body>
+</html>
