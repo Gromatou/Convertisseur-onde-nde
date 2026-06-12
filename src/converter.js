@@ -179,7 +179,7 @@ async function convertNdeToOnde(inFile, FS, stats) {
       if (nds.name) setH5Attr(ondeGroup, 'ONDE:LABEL', nds.name);
 
       // Write dimensions from the NDE dataset
-      writeOndeDimensionsFromNde(ondeGroup, nds);
+      writeOndeDimensionsFromNde(out, ondeGroupPath, nds, datasetRefs.length);
 
       // Copy data with ONDE target name
       copyNdeDataToOnde(inFile, out, nds, ondeGroupPath, stats, targetName);
@@ -222,13 +222,20 @@ async function convertNdeToOnde(inFile, FS, stats) {
 
 // ─── HDF5 Helpers ───────────────────────────────────────────────────────
 
-/** Set a string attribute on an HDF5 group/dataset */
+/** Set a typed attribute on an HDF5 group/dataset */
 function setH5Attr(obj, name, value) {
   try {
     if (Array.isArray(value)) {
-      // Find max string length for fixed-length string arrays
-      const maxLen = Math.max(...value.map(v => String(v).length), 1);
-      obj.create_attribute(name, value.map(String), null, `S${maxLen}`);
+      // Check if all elements are strings or numbers
+      const allStrings = value.every(v => typeof v === 'string');
+      if (allStrings) {
+        const maxLen = Math.max(...value.map(v => String(v).length), 1);
+        obj.create_attribute(name, value.map(String), null, `S${maxLen}`);
+      } else {
+        // Numeric array — preserve as native HDF5 numeric type
+        const numericArr = value.map(v => Number(v));
+        obj.create_attribute(name, numericArr);
+      }
     } else if (typeof value === 'string') {
       obj.create_attribute(name, value);
     } else if (typeof value === 'number') {
@@ -692,19 +699,30 @@ function copyOndeDataToNde(inFile, outFile, dp, groupIdx, stats) {
     const datasetsPath = '/Public/Groups/' + groupIdx + '/Datasets';
     const parent = outFile.get(datasetsPath);
 
+    // Helper to create dataset preserving shape from source
+    function createDsPreserving(parentObj, name, ds) {
+      if (!ds || !ds.value) return;
+      const shape = ds.metadata?.shape || ds.shape;
+      if (shape && shape.length > 1) {
+        parentObj.create_dataset({ name, data: ds.value, shape: Array.from(shape) });
+      } else {
+        parentObj.create_dataset({ name, data: ds.value });
+      }
+    }
+
     const dsType = dp.type;
     if (dsType === 'ONDE_DATASET_UT_ASCAN') {
-      if (dataDs && dataDs.value) parent.create_dataset({ name: '0-AScanAmplitude', data: dataDs.value });
-      if (statusDs && statusDs.value) parent.create_dataset({ name: '1-AScanStatus', data: statusDs.value });
+      if (dataDs) createDsPreserving(parent, '0-AScanAmplitude', dataDs);
+      if (statusDs) createDsPreserving(parent, '1-AScanStatus', statusDs);
       else createPlaceholder(outFile, `${datasetsPath}/1-AScanStatus`, new Uint8Array(1));
     } else if (dsType === 'ONDE_DATASET_UT_TSCAN') {
-      if (dataDs && dataDs.value) parent.create_dataset({ name: '0-TfmValue', data: dataDs.value });
-      if (statusDs && statusDs.value) parent.create_dataset({ name: '1-TfmStatus', data: statusDs.value });
+      if (dataDs) createDsPreserving(parent, '0-TfmValue', dataDs);
+      if (statusDs) createDsPreserving(parent, '1-TfmStatus', statusDs);
       else createPlaceholder(outFile, `${datasetsPath}/1-TfmStatus`, new Uint8Array(1));
     } else if (dsType === 'ONDE_DATASET_UT_CSCAN') {
-      if (dataDs && dataDs.value) parent.create_dataset({ name: '0-CScanPeak', data: dataDs.value });
-      if (timeDs && timeDs.value) parent.create_dataset({ name: '1-CScanTime', data: timeDs.value });
-      if (statusDs && statusDs.value) parent.create_dataset({ name: '2-CScanStatus', data: statusDs.value });
+      if (dataDs) createDsPreserving(parent, '0-CScanPeak', dataDs);
+      if (timeDs) createDsPreserving(parent, '1-CScanTime', timeDs);
+      if (statusDs) createDsPreserving(parent, '2-CScanStatus', statusDs);
     }
   } catch (e) {
     stats.warnings.push(`Data copy error for ${dp.path}: ${e.message}`);
@@ -748,11 +766,12 @@ function resolveOndeType(dataClass) {
   }
 }
 
-function writeOndeDimensionsFromNde(ondeGroup, nds) {
+function writeOndeDimensionsFromNde(outFile, ondeGroupPath, nds, dsIndex) {
   if (!nds.dimensions || !Array.isArray(nds.dimensions)) return;
 
-  // Build INDEX_DIMENSIONS from NDE axes
   const axisToDimension = NDE_TO_ONDE.axisToOndeDimension || {};
+  const ondeGroup = outFile.get(ondeGroupPath);
+  const dimRefs = [];
   let dimCount = 0;
 
   for (const axis of nds.dimensions) {
@@ -760,19 +779,34 @@ function writeOndeDimensionsFromNde(ondeGroup, nds) {
     const ondeDim = axisToDimension[axis.axis];
     if (!ondeDim) continue;
 
-    // Create a dimension sub-group
-    const dimGroupName = `dim_${dimCount}`;
-    // Note: h5wasm doesn't support object references natively for attributes
-    // Store dimension metadata as attributes on the dataset group
-    setH5Attr(ondeGroup, `ONDE_DIM_${dimCount}_COORDINATE`, ondeDim.coordinate);
-    setH5Attr(ondeGroup, `ONDE_DIM_${dimCount}_UNITS`, ondeDim.units);
-    setH5Attr(ondeGroup, `ONDE_DIM_${dimCount}_OFFSET`, axis.offset || 0);
-    setH5Attr(ondeGroup, `ONDE_DIM_${dimCount}_SCALE`, axis.resolution || 1);
+    // Create ONDE_DIMENSION group at root level
+    const dimPath = `/dim_${ondeDim.coordinate}_${dsIndex}_${dimCount}`;
+    outFile.create_group(dimPath);
+    const dimGroup = outFile.get(dimPath);
+    setH5Attr(dimGroup, 'ONDE:TYPE', ['ONDE_DIMENSION']);
+    setH5Attr(dimGroup, 'ONDE_DIMENSION:COORDINATE', ondeDim.coordinate);
+    setH5Attr(dimGroup, 'ONDE_DIMENSION:UNITS', ondeDim.units);
+    setH5Attr(dimGroup, 'ONDE_DIMENSION:OFFSET', axis.offset || 0);
+    setH5Attr(dimGroup, 'ONDE_DIMENSION:SCALE', axis.resolution || 1);
+    dimRefs.push(dimPath);
     dimCount++;
   }
 
+  // Also create AMPLITUDE_DIMENSION
+  const ampPath = `/dim_Amplitude_${dsIndex}_amp`;
+  outFile.create_group(ampPath);
+  const ampGroup = outFile.get(ampPath);
+  setH5Attr(ampGroup, 'ONDE:TYPE', ['ONDE_DIMENSION']);
+  setH5Attr(ampGroup, 'ONDE_DIMENSION:COORDINATE', 'Amplitude');
+  setH5Attr(ampGroup, 'ONDE_DIMENSION:UNITS', 'arbitrary');
+  setH5Attr(ampGroup, 'ONDE_DIMENSION:OFFSET', 0.0);
+  setH5Attr(ampGroup, 'ONDE_DIMENSION:SCALE', 1.0);
+
   if (dimCount > 0) {
     setH5Attr(ondeGroup, 'ONDE_DIM_COUNT', dimCount);
+    // Store INDEX_DIMENSIONS as string paths (h5wasm limitation: no H5T_STD_REF_OBJ)
+    setH5Attr(ondeGroup, 'ONDE_DATASET:INDEX_DIMENSIONS', dimRefs);
+    setH5Attr(ondeGroup, 'ONDE_DATASET:AMPLITUDE_DIMENSION', ampPath);
   }
 }
 
@@ -783,7 +817,13 @@ function copyNdeDataToOnde(inFile, outFile, nds, ondePath, stats, targetName = '
     if (!sourceDs || !sourceDs.value) return;
 
     const target = outFile.get(ondePath);
-    target.create_dataset({ name: targetName, data: sourceDs.value });
+    // Preserve multi-dimensional shape
+    const shape = sourceDs.metadata?.shape || sourceDs.shape;
+    if (shape && shape.length > 1) {
+      target.create_dataset({ name: targetName, data: sourceDs.value, shape: Array.from(shape) });
+    } else {
+      target.create_dataset({ name: targetName, data: sourceDs.value });
+    }
   } catch (e) {
     stats.warnings.push(`NDE data copy error: ${e.message}`);
   }
@@ -824,13 +864,14 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     let ascanStartVal = 0.0;
     for (const grp of (setup.groups || [])) {
       const proc = grp.processes?.[0];
-      if (proc?.ultrasonicConventional) {
-        rectification = NDE_TO_ONDE.rectificationMap[proc.ultrasonicConventional.rectification] || 'FULL_WAVE';
+      const ulProc = proc?.ultrasonicConventional || proc?.ultrasonicPhasedArray || proc?.ultrasonicMatrixCapture;
+      if (ulProc) {
+        rectification = NDE_TO_ONDE.rectificationMap[ulProc.rectification] || 'FULL_WAVE';
         if (proc.gain !== undefined) gainDb = proc.gain;
-        if (proc.ultrasonicConventional.digitizingFrequency) digitizingFreq = proc.ultrasonicConventional.digitizingFrequency;
-        if (proc.ultrasonicConventional.ascanCompressionFactor) ascanCompression = proc.ultrasonicConventional.ascanCompressionFactor;
-        if (proc.ultrasonicConventional.velocity) velocityVal = proc.ultrasonicConventional.velocity;
-        const beam0 = proc.ultrasonicConventional.beams?.[0];
+        if (ulProc.digitizingFrequency) digitizingFreq = ulProc.digitizingFrequency;
+        if (ulProc.ascanCompressionFactor) ascanCompression = ulProc.ascanCompressionFactor;
+        if (ulProc.velocity) velocityVal = ulProc.velocity;
+        const beam0 = ulProc.beams?.[0];
         if (beam0?.ascanStart !== undefined) ascanStartVal = beam0.ascanStart;
         break;
       }
