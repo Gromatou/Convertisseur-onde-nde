@@ -1582,6 +1582,8 @@
 
   async function generateTestNdeFile() {
     const h5wasm = globalThis.h5wasm;
+    if (!h5Module || !h5Module.FS) throw new Error('h5wasm filesystem not ready');
+
     const { FS } = h5Module;
 
     // Create a minimal valid NDE file with one AScan group
@@ -1595,7 +1597,7 @@
         createdByAppName: 'Test Generator', description: 'Minimal NDE test file' },
       methods: ['UT']
     });
-    f.create_dataset({ name: 'Properties', data: new TextEncoder().encode(props), dtype: '<u1' });
+    f.create_dataset({ name: 'Properties', data: new TextEncoder().encode(props) });
 
     // /Public/Setup
     const setup = JSON.stringify({
@@ -1628,7 +1630,7 @@
           elements: [{ id: 0, acquisitionUnitId: 0, connectorName: 'CH1' }] }}]
     });
     f.create_group('/Public');
-    f.get('/Public').create_dataset({ name: 'Setup', data: new TextEncoder().encode(setup), dtype: '<u1' });
+    f.get('/Public').create_dataset({ name: 'Setup', data: new TextEncoder().encode(setup) });
 
     // /Public/Groups/0/Datasets with dummy AScan data
     f.create_group('/Public/Groups');

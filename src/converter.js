@@ -246,7 +246,7 @@ function writeJsonDataset(file, path, obj) {
   const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
   const name = path.substring(path.lastIndexOf('/') + 1);
   const parent = file.get(parentPath);
-  parent.create_dataset({ name, data: encoded, dtype: '<u1' });
+  parent.create_dataset({ name, data: encoded });
 }
 
 /** Get an attribute value from an HDF5 group/dataset. Returns undefined if missing. */
@@ -715,7 +715,7 @@ function createPlaceholder(file, path, data) {
     const lastSlash = path.lastIndexOf('/');
     const parentPath = path.substring(0, lastSlash) || '/';
     const name = path.substring(lastSlash + 1);
-    file.get(parentPath).create_dataset({ name, data, dtype: '<u1' });
+    file.get(parentPath).create_dataset({ name, data });
   } catch (_) {}
 }
 
