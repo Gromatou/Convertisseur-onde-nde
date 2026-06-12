@@ -503,6 +503,7 @@ function defaultNdeProcess(groupIndex, processGain = 0, digitizingFreq = 100e6, 
       wedgeDelay: 0,
       rectification: 'None',
       digitizingFrequency: digitizingFreq,
+      ascanCompressionFactor: 1,
       beams: [{ id: 0, refractedAngle: 0, ascanStart: 0, ascanLength: 1e-4 }]
     }
   };
@@ -818,6 +819,7 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     let rectification = 'FULL_WAVE';
     let gainDb = 0;
     let digitizingFreq = 100e6;
+    let ascanCompression = 1;
     let velocityVal = 5920;
     let ascanStartVal = 0.0;
     for (const grp of (setup.groups || [])) {
@@ -826,6 +828,7 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
         rectification = NDE_TO_ONDE.rectificationMap[proc.ultrasonicConventional.rectification] || 'FULL_WAVE';
         if (proc.gain !== undefined) gainDb = proc.gain;
         if (proc.ultrasonicConventional.digitizingFrequency) digitizingFreq = proc.ultrasonicConventional.digitizingFrequency;
+        if (proc.ultrasonicConventional.ascanCompressionFactor) ascanCompression = proc.ultrasonicConventional.ascanCompressionFactor;
         if (proc.ultrasonicConventional.velocity) velocityVal = proc.ultrasonicConventional.velocity;
         const beam0 = proc.ultrasonicConventional.beams?.[0];
         if (beam0?.ascanStart !== undefined) ascanStartVal = beam0.ascanStart;
@@ -837,7 +840,8 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     // GAIN and ASCAN_START must be Datasets per ONDE spec (not attributes)
     us.create_dataset({ name: 'GAIN', data: new Float64Array([linearGain]) });
     us.create_dataset({ name: 'ASCAN_START', data: new Float64Array([ascanStartVal]) });
-    setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:ASCAN_SAMPLE_RATE', digitizingFreq);
+    // ASCAN_SAMPLE_RATE = digitizingFrequency / ascanCompressionFactor
+    setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:ASCAN_SAMPLE_RATE', digitizingFreq / ascanCompression);
 
     // ── Wedge/Coupling Groups (Fix 3) ────────────────────────────────
     const wedges = setup.wedges || [];

@@ -5,10 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Convertisseur ONDE↔NDE — Ultrasonic File Format Converter</title>
 
-  <!-- Fonts: Sora for headings, JetBrains Mono for data, Inter for body -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 
   <!-- h5wasm -->
   <script src="https://cdn.jsdelivr.net/npm/h5wasm@0.7.0/dist/iife/h5wasm.js"></script>
@@ -21,32 +17,32 @@
        CSS Custom Properties — Dark Engineering Theme
        ═══════════════════════════════════════════════════ */
     :root {
-      /* Surfaces */
-      --bg-root: #090d14;
-      --bg-elevated: #0f1520;
-      --bg-surface: #141c2b;
-      --bg-overlay: #1a2335;
-      --bg-glass: rgba(20, 28, 43, 0.75);
-      --bg-glass-hover: rgba(26, 35, 53, 0.85);
+      /* Surfaces — Light theme (myHDF5-inspired) */
+      --bg-root: #f5f6f8;
+      --bg-elevated: #f0f1f3;
+      --bg-surface: #ffffff;
+      --bg-overlay: #f8f9fb;
+      --bg-glass: #ffffff;
+      --bg-glass-hover: #f0f1f3;
 
-      /* Accent — Teal/Cyan for ultrasonic feel */
-      --accent-primary: #0ce6f2;
-      --accent-secondary: #00b8d4;
-      --accent-glow: rgba(12, 230, 242, 0.25);
-      --accent-glow-strong: rgba(12, 230, 242, 0.45);
-      --accent-warm: #f59e0b;
-      --accent-danger: #ef4444;
+      /* Accent — Professional Blue */
+      --accent-primary: #2563eb;
+      --accent-secondary: #3b82f6;
+      --accent-glow: rgba(37, 99, 235, 0.08);
+      --accent-glow-strong: rgba(37, 99, 235, 0.15);
+      --accent-warm: #d97706;
+      --accent-danger: #dc2626;
 
       /* Typography */
-      --text-primary: #e8edf4;
-      --text-secondary: #8b95a8;
-      --text-muted: #556178;
-      --text-accent: #0ce6f2;
+      --text-primary: #1a1a2e;
+      --text-secondary: #4a4a5a;
+      --text-muted: #8a8a9a;
+      --text-accent: #2563eb;
 
       /* Borders & Dividers */
-      --border-subtle: rgba(139, 149, 168, 0.12);
-      --border-visible: rgba(139, 149, 168, 0.25);
-      --border-accent: rgba(12, 230, 242, 0.35);
+      --border-subtle: #e0e2e6;
+      --border-visible: #d0d3d8;
+      --border-accent: rgba(37, 99, 235, 0.35);
 
       /* Sizing */
       --radius-sm: 6px;
@@ -54,11 +50,11 @@
       --radius-lg: 16px;
       --radius-xl: 22px;
 
-      /* Shadows */
-      --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
-      --shadow-md: 0 4px 16px rgba(0,0,0,0.45);
-      --shadow-lg: 0 8px 40px rgba(0,0,0,0.6);
-      --shadow-glow: 0 0 40px var(--accent-glow);
+      /* Shadows — Subtle for light theme */
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-md: 0 1px 3px rgba(0,0,0,0.08);
+      --shadow-lg: 0 4px 16px rgba(0,0,0,0.1);
+      --shadow-glow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 
       /* Spacing */
       --space-xs: 4px;
@@ -82,10 +78,38 @@
        ═══════════════════════════════════════════════════ */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── Disclaimer Banner ──────────────────────── */
+    .disclaimer-banner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 5px 16px;
+      background: #dc2626;
+      color: #fff;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-align: center;
+      letter-spacing: 0.01em;
+    }
+    [data-theme="dark"] .disclaimer-banner {
+      background: #991b1b;
+    }
+
+    /* Thin scrollbars globally */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-visible) transparent;
+    }
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: var(--border-visible); border-radius: 3px; }
+    *::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
     html { font-size: 16px; -webkit-font-smoothing: antialiased; }
 
     body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: var(--bg-root);
       color: var(--text-primary);
       min-height: 100vh;
@@ -93,29 +117,31 @@
       line-height: 1.6;
     }
 
-    /* ═══════════════════════════════════════════════════
-       Ambient Background Effects
-       ═══════════════════════════════════════════════════ */
-    body::before {
+    /* Ambient background effects — hidden in light mode, restored in dark */
+    body::before { display: none; }
+    body::after  { display: none; }
+
+    [data-theme="dark"] body::before {
+      display: block;
       content: '';
       position: fixed;
       inset: 0;
       background:
-        radial-gradient(ellipse 60% 50% at 20% 50%, rgba(12, 230, 242, 0.04) 0%, transparent 70%),
-        radial-gradient(ellipse 40% 60% at 85% 30%, rgba(0, 184, 212, 0.03) 0%, transparent 70%),
-        radial-gradient(ellipse 30% 40% at 50% 80%, rgba(12, 230, 242, 0.02) 0%, transparent 60%);
+        radial-gradient(ellipse 60% 50% at 20% 50%, rgba(37, 99, 235, 0.04) 0%, transparent 70%),
+        radial-gradient(ellipse 40% 60% at 85% 30%, rgba(59, 130, 246, 0.03) 0%, transparent 70%),
+        radial-gradient(ellipse 30% 40% at 50% 80%, rgba(37, 99, 235, 0.02) 0%, transparent 60%);
       pointer-events: none;
       z-index: 0;
     }
 
-    /* Subtle grid overlay */
-    body::after {
+    [data-theme="dark"] body::after {
+      display: block;
       content: '';
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(12, 230, 242, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(12, 230, 242, 0.03) 1px, transparent 1px);
+        linear-gradient(rgba(37, 99, 235, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(37, 99, 235, 0.03) 1px, transparent 1px);
       background-size: 64px 64px;
       pointer-events: none;
       z-index: 0;
@@ -129,7 +155,7 @@
       z-index: 1;
       max-width: 1480px;
       margin: 0 auto;
-      padding: var(--space-lg) var(--space-lg) var(--space-xl);
+      padding: var(--space-sm) var(--space-lg) var(--space-xl);
       display: flex;
       flex-direction: column;
       min-height: 100vh;
@@ -157,18 +183,15 @@
     }
 
     .header h1 {
-      font-family: 'Sora', sans-serif;
-      font-weight: 600;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-weight: 700;
       font-size: clamp(1.6rem, 3.5vw, 2.2rem);
       letter-spacing: -0.02em;
-      background: linear-gradient(135deg, var(--text-primary) 0%, #c4d4e8 50%, var(--accent-primary) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: var(--text-primary);
     }
 
     .header .subtitle {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.75rem;
       font-weight: 500;
       color: var(--text-muted);
@@ -191,13 +214,11 @@
     }
 
     .panel {
-      background: var(--bg-glass);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-xl);
+      border-radius: var(--radius-lg);
       padding: var(--space-lg);
-      box-shadow: var(--shadow-md);
+      box-shadow: var(--shadow-sm);
       display: flex;
       flex-direction: column;
       gap: var(--space-lg);
@@ -206,7 +227,8 @@
     }
 
     .panel:hover {
-      border-color: var(--border-visible);
+      border-color: var(--border-accent);
+      box-shadow: var(--shadow-md);
     }
 
     /* ── Mapping panel scroll constraint ─────────── */
@@ -231,7 +253,7 @@
     }
 
     .panel-header h2 {
-      font-family: 'Sora', sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       font-size: 0.95rem;
       font-weight: 600;
       letter-spacing: -0.01em;
@@ -239,14 +261,14 @@
     }
 
     .panel-badge {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.65rem;
       font-weight: 600;
       padding: 2px 8px;
       border-radius: 100px;
-      background: rgba(12, 230, 242, 0.1);
+      background: rgba(37, 99, 235, 0.06);
       color: var(--accent-primary);
-      border: 1px solid rgba(12, 230, 242, 0.2);
+      border: 1px solid rgba(37, 99, 235, 0.15);
       margin-left: auto;
     }
 
@@ -268,6 +290,18 @@
     }
 
     .drop-zone::before {
+      display: none;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent-primary);
+      border-style: solid;
+      background: var(--bg-overlay);
+    }
+
+    [data-theme="dark"] .drop-zone::before {
+      display: block;
       content: '';
       position: absolute;
       inset: 0;
@@ -277,15 +311,8 @@
       transition: opacity var(--duration-normal) var(--ease-out);
     }
 
-    .drop-zone:hover,
-    .drop-zone.drag-over {
-      border-color: var(--accent-primary);
-      border-style: solid;
-      box-shadow: var(--shadow-glow);
-    }
-
-    .drop-zone:hover::before,
-    .drop-zone.drag-over::before {
+    [data-theme="dark"] .drop-zone:hover::before,
+    [data-theme="dark"] .drop-zone.drag-over::before {
       opacity: 0.5;
     }
 
@@ -317,7 +344,7 @@
     }
 
     .drop-zone h3 {
-      font-family: 'Sora', sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       font-size: 0.95rem;
       font-weight: 500;
       color: var(--text-secondary);
@@ -329,7 +356,7 @@
     }
 
     .drop-zone .file-formats {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.7rem;
       color: var(--text-muted);
       letter-spacing: 0.03em;
@@ -364,7 +391,7 @@
     }
 
     .file-details .file-name {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.78rem;
       font-weight: 500;
       color: var(--text-primary);
@@ -411,7 +438,7 @@
     }
 
     .format-badge {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.75rem;
       font-weight: 700;
       padding: 6px 14px;
@@ -421,17 +448,15 @@
     }
 
     .format-badge.onde {
-      background: rgba(12, 230, 242, 0.15);
-      color: #0ce6f2;
-      border: 1px solid rgba(12, 230, 242, 0.3);
-      box-shadow: 0 0 16px rgba(12, 230, 242, 0.15);
+      background: rgba(37, 99, 235, 0.08);
+      color: #2563eb;
+      border: 1px solid rgba(37, 99, 235, 0.2);
     }
 
     .format-badge.nde {
-      background: rgba(245, 158, 11, 0.15);
-      color: #f59e0b;
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+      background: rgba(217, 119, 6, 0.08);
+      color: #d97706;
+      border: 1px solid rgba(217, 119, 6, 0.2);
     }
 
     .format-arrow {
@@ -441,7 +466,7 @@
     }
 
     .format-target {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.7rem;
       color: var(--text-secondary);
       opacity: 0.6;
@@ -454,14 +479,14 @@
       padding: 14px 24px;
       border: none;
       border-radius: var(--radius-md);
-      font-family: 'Sora', sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       font-size: 0.9rem;
       font-weight: 600;
       letter-spacing: 0.02em;
       cursor: pointer;
-      color: var(--bg-root);
-      background: linear-gradient(135deg, #0ce6f2 0%, #0097a7 100%);
-      box-shadow: 0 4px 24px rgba(12, 230, 242, 0.3);
+      color: #ffffff;
+      background: var(--accent-primary);
+      box-shadow: var(--shadow-sm);
       transition: all var(--duration-normal) var(--ease-out);
       overflow: hidden;
     }
@@ -481,7 +506,8 @@
 
     .convert-btn:hover:not(:disabled) {
       transform: translateY(-1px);
-      box-shadow: 0 8px 32px rgba(12, 230, 242, 0.45);
+      box-shadow: var(--shadow-md);
+      background: var(--accent-secondary);
     }
 
     .convert-btn:active:not(:disabled) {
@@ -495,7 +521,7 @@
     }
 
     .convert-btn.processing {
-      background: linear-gradient(135deg, var(--bg-overlay) 0%, var(--bg-surface) 100%);
+      background: var(--bg-overlay);
       color: var(--text-secondary);
       box-shadow: none;
     }
@@ -513,7 +539,7 @@
       border: 1px dashed var(--border-visible);
       border-radius: var(--radius-md);
       color: var(--text-secondary);
-      font-family: var(--font-body);
+      font-family: system-ui, -apple-system, sans-serif;
       font-size: 0.8rem;
       cursor: pointer;
       transition: all var(--duration-fast) var(--ease-out);
@@ -521,7 +547,7 @@
     .test-gen-btn:hover {
       border-color: var(--accent-primary);
       color: var(--accent-primary);
-      background: rgba(12, 230, 242, 0.05);
+      background: rgba(37, 99, 235, 0.04);
     }
 
     /* ── Progress ──────────────────────────────── */
@@ -535,7 +561,7 @@
 
     .progress-bar {
       height: 4px;
-      background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+      background: var(--accent-primary);
       border-radius: var(--radius-sm);
       transition: width 0.5s var(--ease-out);
       position: relative;
@@ -553,7 +579,7 @@
     }
 
     .progress-text {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.68rem;
       color: var(--text-muted);
       text-align: center;
@@ -577,7 +603,7 @@
     }
 
     .stat-value {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 1.4rem;
       font-weight: 600;
       color: var(--accent-primary);
@@ -601,13 +627,13 @@
       padding: 12px 20px;
       border: 2px solid var(--accent-primary);
       border-radius: var(--radius-md);
-      font-family: 'Sora', sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       font-size: 0.85rem;
       font-weight: 600;
       letter-spacing: 0.02em;
       cursor: pointer;
       color: var(--accent-primary);
-      background: rgba(12, 230, 242, 0.05);
+      background: transparent;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -617,8 +643,7 @@
     }
 
     .download-btn:hover {
-      background: rgba(12, 230, 242, 0.15);
-      box-shadow: 0 0 24px rgba(12, 230, 242, 0.2);
+      background: rgba(37, 99, 235, 0.06);
       transform: translateY(-1px);
     }
 
@@ -658,7 +683,7 @@
     }
 
     .filter-chip {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.65rem;
       font-weight: 600;
       padding: 4px 10px;
@@ -678,8 +703,8 @@
     }
 
     .filter-chip.active {
-      background: rgba(12, 230, 242, 0.12);
-      border-color: rgba(12, 230, 242, 0.3);
+      background: rgba(37, 99, 235, 0.06);
+      border-color: rgba(37, 99, 235, 0.2);
       color: var(--accent-primary);
     }
 
@@ -691,7 +716,7 @@
       border: 1px solid var(--border-subtle);
       background: var(--bg-surface);
       color: var(--text-primary);
-      font-family: 'Inter', sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       font-size: 0.75rem;
       transition: all var(--duration-fast) var(--ease-out);
     }
@@ -699,7 +724,7 @@
     .search-input:focus {
       outline: none;
       border-color: var(--border-accent);
-      box-shadow: 0 0 0 3px rgba(12, 230, 242, 0.08);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.06);
     }
 
     .search-input::placeholder {
@@ -753,7 +778,7 @@
     }
 
     .category-header:hover {
-      background: rgba(255,255,255,0.02);
+      background: rgba(0,0,0,0.02);
     }
 
     .category-icon {
@@ -769,7 +794,7 @@
     }
 
     .category-title {
-      font-family: 'Sora', sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       font-size: 0.75rem;
       font-weight: 600;
       color: var(--text-secondary);
@@ -777,7 +802,7 @@
     }
 
     .category-count {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.6rem;
       color: var(--text-muted);
     }
@@ -799,7 +824,7 @@
     }
 
     .mapping-table th {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.65rem;
       font-weight: 600;
       text-transform: uppercase;
@@ -826,20 +851,20 @@
     }
 
     .mapping-table tr:hover td {
-      background: rgba(255,255,255,0.015);
+      background: rgba(0,0,0,0.02);
     }
 
     .mapping-table .field-onde {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.72rem;
-      color: #0ce6f2;
+      color: var(--accent-primary);
       white-space: nowrap;
     }
 
     .mapping-table .field-nde {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.72rem;
-      color: #f59e0b;
+      color: var(--accent-warm);
       white-space: nowrap;
     }
 
@@ -879,7 +904,7 @@
     }
 
     .direction-toggle button {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.65rem;
       font-weight: 600;
       padding: 5px 14px;
@@ -891,7 +916,7 @@
     }
 
     .direction-toggle button.active {
-      background: rgba(12, 230, 242, 0.12);
+      background: rgba(37, 99, 235, 0.06);
       color: var(--accent-primary);
     }
 
@@ -916,7 +941,7 @@
     }
 
     .footer-badge {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Cascadia Code', monospace;
       font-size: 0.62rem;
       color: var(--text-muted);
       padding: 3px 10px;
@@ -985,9 +1010,146 @@
       animation: fadeIn var(--duration-normal) var(--ease-out);
     }
 
-    /* ═══════════════════════════════════════════════
-       Responsive
-       ═══════════════════════════════════════════════ */
+    /* ═══════════════════════════════════════════════════
+       Dark Theme — original dark engineering palette
+       ═══════════════════════════════════════════════════ */
+    [data-theme="dark"] {
+      --bg-root: #090d14;
+      --bg-elevated: #0f1520;
+      --bg-surface: #141c2b;
+      --bg-overlay: #1a2335;
+      --bg-glass: #141c2b;
+      --bg-glass-hover: #1a2335;
+
+      --accent-primary: #0ce6f2;
+      --accent-secondary: #00b8d4;
+      --accent-glow: rgba(12, 230, 242, 0.25);
+      --accent-glow-strong: rgba(12, 230, 242, 0.45);
+      --accent-warm: #f59e0b;
+      --accent-danger: #ef4444;
+
+      --text-primary: #e8edf4;
+      --text-secondary: #8b95a8;
+      --text-muted: #556178;
+      --text-accent: #0ce6f2;
+
+      --border-subtle: rgba(139, 149, 168, 0.12);
+      --border-visible: rgba(139, 149, 168, 0.25);
+      --border-accent: rgba(12, 230, 242, 0.35);
+
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+      --shadow-md: 0 4px 16px rgba(0,0,0,0.45);
+      --shadow-lg: 0 8px 40px rgba(0,0,0,0.6);
+      --shadow-glow: 0 0 40px var(--accent-glow);
+    }
+
+    [data-theme="dark"] .panel-badge {
+      background: rgba(12, 230, 242, 0.1);
+      border-color: rgba(12, 230, 242, 0.2);
+    }
+    [data-theme="dark"] .filter-chip.active {
+      background: rgba(12, 230, 242, 0.12);
+      border-color: rgba(12, 230, 242, 0.3);
+    }
+    [data-theme="dark"] .direction-toggle button.active {
+      background: rgba(12, 230, 242, 0.12);
+    }
+    [data-theme="dark"] .test-gen-btn:hover {
+      background: rgba(12, 230, 242, 0.05);
+    }
+    [data-theme="dark"] .search-input:focus {
+      box-shadow: 0 0 0 3px rgba(12, 230, 242, 0.08);
+    }
+    [data-theme="dark"] .download-btn:hover {
+      background: rgba(12, 230, 242, 0.15);
+    }
+    [data-theme="dark"] .format-badge.onde {
+      background: rgba(12, 230, 242, 0.15);
+      color: #0ce6f2;
+      border-color: rgba(12, 230, 242, 0.3);
+    }
+    [data-theme="dark"] .format-badge.nde {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+    [data-theme="dark"] .mapping-table .field-onde { color: #0ce6f2; }
+    [data-theme="dark"] .mapping-table .field-nde  { color: #f59e0b; }
+
+    [data-theme="dark"] .convert-btn {
+      background: linear-gradient(135deg, #0ce6f2 0%, #0097a7 100%);
+      color: #090d14;
+      box-shadow: 0 4px 24px rgba(12, 230, 242, 0.3);
+    }
+    [data-theme="dark"] .convert-btn:hover:not(:disabled) {
+      background: linear-gradient(135deg, #0ce6f2 0%, #0097a7 100%);
+      box-shadow: 0 8px 32px rgba(12, 230, 242, 0.45);
+    }
+    [data-theme="dark"] .convert-btn.processing {
+      background: linear-gradient(135deg, #1a2335 0%, #141c2b 100%);
+      color: #8b95a8;
+    }
+
+    [data-theme="dark"] .progress-bar {
+      background: linear-gradient(90deg, #0ce6f2, #00b8d4);
+    }
+    [data-theme="dark"] .panel {
+      background: rgba(20, 28, 43, 0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-md);
+    }
+    [data-theme="dark"] .panel:hover {
+      border-color: var(--border-visible);
+      box-shadow: var(--shadow-md);
+    }
+    [data-theme="dark"] .drop-zone:hover,
+    [data-theme="dark"] .drop-zone.drag-over { box-shadow: 0 0 40px var(--accent-glow); }
+    [data-theme="dark"] .mapping-table tr:hover td { background: rgba(255,255,255,0.015); }
+    [data-theme="dark"] .category-header:hover { background: rgba(255,255,255,0.02); }
+
+    [data-theme="dark"] .theme-icon-light { display: none; }
+    [data-theme="dark"] .theme-icon-dark  { display: block; }
+    .theme-icon-dark { display: none; }
+
+    /* ═══════ Theme Toggle ═══════════════════════ */
+    .theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 100;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--duration-fast) var(--ease-out);
+      box-shadow: var(--shadow-sm);
+    }
+    .theme-toggle:hover {
+      border-color: var(--border-visible);
+      background: var(--bg-overlay);
+    }
+    .theme-toggle svg {
+      width: 17px;
+      height: 17px;
+      stroke: var(--text-secondary);
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .theme-icon-light { display: block; }
+    .theme-icon-dark  { display: none; }
+    [data-theme="dark"] .theme-icon-light { display: none; }
+    [data-theme="dark"] .theme-icon-dark  { display: block; }
+
+    /* ═══════ Responsive ═══════════════════════════ */
     @media (max-width: 900px) {
       .main-grid {
         grid-template-columns: 1fr;
@@ -1032,26 +1194,37 @@
 </head>
 <body>
 
+<!-- ═══ DISCLAIMER BANNER ═══ -->
+<div class="disclaimer-banner">
+  Ce convertisseur n'a ni été approuvé ni vérifié par une quelconque autorité compétente.
+</div>
+
 <div class="app-container">
 
   <!-- ═══ HEADER ═══ -->
   <header class="header">
     <div class="header-icon">
       <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="4" y="8" width="40" height="32" rx="4" stroke="#0ce6f2" stroke-width="1.5" fill="none"/>
-        <path d="M14 22h6M14 26h10M14 30h8" stroke="#0ce6f2" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
-        <circle cx="36" cy="21" r="5" stroke="#0ce6f2" stroke-width="1.2" fill="none"/>
-        <path d="M33 21l2 2 4-4" stroke="#0ce6f2" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="36" cy="31" r="5" stroke="#f59e0b" stroke-width="1.2" fill="none"/>
-        <path d="M33 31l2 2 4-4" stroke="#f59e0b" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M20 8V4M28 8V4" stroke="#0ce6f2" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
-        <path d="M36 36l5.5 5.5" stroke="#0ce6f2" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
-        <path d="M12 36l-5.5 5.5" stroke="#f59e0b" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
+        <rect x="4" y="8" width="40" height="32" rx="4" stroke="var(--accent-primary)" stroke-width="1.5" fill="none"/>
+        <path d="M14 22h6M14 26h10M14 30h8" stroke="var(--accent-primary)" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
+        <circle cx="36" cy="21" r="5" stroke="var(--accent-primary)" stroke-width="1.2" fill="none"/>
+        <path d="M33 21l2 2 4-4" stroke="var(--accent-primary)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="36" cy="31" r="5" stroke="var(--accent-warm)" stroke-width="1.2" fill="none"/>
+        <path d="M33 31l2 2 4-4" stroke="var(--accent-warm)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M20 8V4M28 8V4" stroke="var(--accent-primary)" stroke-width="1" stroke-linecap="round" opacity="0.4"/>
+        <path d="M36 36l5.5 5.5" stroke="var(--accent-primary)" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
+        <path d="M12 36l-5.5 5.5" stroke="var(--accent-warm)" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
       </svg>
     </div>
     <h1>Convertisseur ONDE ↔ NDE</h1>
     <p class="subtitle">HDF5 Ultrasonic File Format Converter</p>
   </header>
+
+  <!-- Theme Toggle -->
+  <button class="theme-toggle" id="theme-toggle" title="Toggle dark/light theme" aria-label="Toggle theme">
+    <svg class="theme-icon theme-icon-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    <svg class="theme-icon theme-icon-dark" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
 
   <!-- ═══ MAIN TWO-PANEL GRID ═══ -->
   <main class="main-grid">
@@ -1223,6 +1396,22 @@
     DIMENSION_MAPPING,
     detectFormat
   } from './src/mapping.js';
+
+  // ═══ THEME TOGGLE ═══════════════════════════════
+  (function initTheme() {
+    const html = document.documentElement;
+    const toggle = document.getElementById('theme-toggle');
+    const saved = localStorage.getItem('theme') || 'light';
+    html.setAttribute('data-theme', saved);
+
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+      });
+    }
+  })();
 
   // ═══ STATE ═══════════════════════════════════
   const state = {
