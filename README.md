@@ -31,8 +31,10 @@
 | `.nde` | NDE | Evident v4.2.0 |
 | `.h5` | HDF5 | Conteneur générique (détection automatique ONDE ou NDE) |
 
-## - **codé par IA** L'entièretée du code a été générée en utilisant Deepseek V4 en mode agentique, cout total : 55 centimes.
-prompt : creer un convertisseur de fichiers ultrason, entre les formats ONDE et NDE, fait des recherches sur ces formats, telecharge les données par exemple le setup json shema pour nde et le ondefields, et creer une application web qui permet de convertir localement son fichier d'un format a l'autre dans les 2 sens. Fait des tests pour verifier qu'il n'y a pas d'erreur, délegue les taches pour economiser des ressources, prend ton temps pour faire des rechercehs complettes et etablir un tableau de correspondance complet
+# - **codé par IA** 
+##L'entièretée du code a été générée en utilisant Deepseek V4 en mode agentique, cout total : 55 centimes.
+
+**prompt :** creer un convertisseur de fichiers ultrason, entre les formats ONDE et NDE, fait des recherches sur ces formats, telecharge les données par exemple le setup json shema pour nde et le ondefields, et creer une application web qui permet de convertir localement son fichier d'un format a l'autre dans les 2 sens. Fait des tests pour verifier qu'il n'y a pas d'erreur, délegue les taches pour economiser des ressources, prend ton temps pour faire des rechercehs complettes et etablir un tableau de correspondance complet
 
 ## 🛠️ Détails techniques
 
