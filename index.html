@@ -2328,9 +2328,27 @@
   function freeWasmString(mod, ptr) { mod._free(ptr); }
 
   /**
-   * Post-processing step: use the ref module to create real HDF5 object
-   * references for ONDE_DATASET:SETUP attributes on each dataset group.
+   * Check if a string value looks like an HDF5 path reference (starts with '/').
+   */
+  function isPathRef(value) {
+    return typeof value === 'string' && value.startsWith('/');
+  }
+
+  /**
+   * Check if an array value is an array of HDF5 path references.
+   */
+  function isPathRefArray(value) {
+    return Array.isArray(value) && value.length > 0 && value.every(v => isPathRef(v));
+  }
+
+  /**
+   * Post-processing step: use the ref module to upgrade all string-path
+   * attributes into REAL HDF5 object references (H5T_STD_REF_OBJ).
+   *
    * The main converter (via h5wasm) can only write these as plain strings.
+   * This function opens the output file with the C HDF5 library and calls
+   * h5r_set_attr_ref / h5r_set_attr_ref_array to replace each string
+   * attribute with a proper HDF5 object reference attribute.
    */
   async function applyHdf5References(buffer) {
     const RefModule = globalThis.__refModule;
@@ -2347,7 +2365,66 @@
       return buffer;
     }
 
-    // Open the file
+    // ── Step 1: Use h5wasm to discover all reference attributes ──
+    const refsToUpgrade = []; // [{path, attrName, targetPaths, isArray}]
+
+    try {
+      const h5File = new globalThis.h5wasm.File('fixup.h5', 'r');
+
+      function collectRefAttrs(path) {
+        try {
+          const group = h5File.get(path);
+          if (!group || typeof group.keys !== 'function') return;
+
+          if (group.attrs) {
+            for (const key of Object.keys(group.attrs)) {
+              const attrVal = group.attrs[key]?.value;
+              if (attrVal === undefined || attrVal === null) continue;
+
+              let targetPaths = null;
+              let isArray = false;
+
+              if (isPathRef(attrVal)) {
+                targetPaths = [attrVal];
+              } else if (isPathRefArray(attrVal)) {
+                targetPaths = attrVal;
+                isArray = true;
+              }
+
+              if (targetPaths) {
+                refsToUpgrade.push({ path, attrName: key, targetPaths, isArray });
+              }
+            }
+          }
+
+          const children = group.keys();
+          if (children) {
+            for (const child of children) {
+              const childPath = path === '/' ? `/${child}` : `${path}/${child}`;
+              try {
+                const childObj = h5File.get(childPath);
+                if (childObj && typeof childObj.keys === 'function') {
+                  collectRefAttrs(childPath);
+                }
+              } catch (_) { /* skip non-groups */ }
+            }
+          }
+        } catch (_) { /* skip errors */ }
+      }
+
+      collectRefAttrs('/');
+      h5File.close();
+    } catch (e) {
+      console.warn('[ref] h5wasm scan failed, cannot upgrade references:', e.message);
+      return buffer;
+    }
+
+    if (refsToUpgrade.length === 0) {
+      console.log('[ref] no reference attributes found to upgrade');
+      return buffer;
+    }
+
+    // ── Step 2: Open file with C API and upgrade each reference ──
     const pathPtr = wasmString(RefModule, 'fixup.h5');
     const fid = RefModule._h5r_open(pathPtr);
     freeWasmString(RefModule, pathPtr);
@@ -2356,47 +2433,44 @@
       return buffer;
     }
 
+    let fixedCount = 0;
     try {
-      const setupPath = '/ONDE_SETUP_UT';
-      const prefixes = ['/ascan_', '/tscan_', '/cscan_'];
-      let fixedCount = 0;
+      for (const refInfo of refsToUpgrade) {
+        const { path, attrName, targetPaths, isArray } = refInfo;
 
-      for (const prefix of prefixes) {
-        let idx = 0;
-        while (true) {
-          const groupPath = `${prefix}${idx}`;
-          const gPtr = wasmString(RefModule, groupPath);
-          const gid = RefModule._h5r_open_group(fid, gPtr);
-          freeWasmString(RefModule, gPtr);
+        const gPtr = wasmString(RefModule, path);
+        const gid = RefModule._h5r_open_group(fid, gPtr);
+        freeWasmString(RefModule, gPtr);
+        if (gid < 0) continue;
 
-          if (gid < 0) break; // no more groups with this prefix
-
-          // Create an HDF5 object reference pointing to /ONDE_SETUP_UT
-          const refBuf = RefModule._malloc(8);
-          const targetPtr = wasmString(RefModule, setupPath);
-          RefModule._h5r_create_reference(fid, targetPtr, refBuf);
-          freeWasmString(RefModule, targetPtr);
-
-          // Read the 8 raw reference bytes
-          const refBytes = new Uint8Array(RefModule.HEAPU8.buffer, refBuf, 8);
-
-          // Store the reference bytes as a float64 attribute on the group.
-          // The 8 bytes of an HDF5 object reference, interpreted as IEEE 754 double,
-          // retain the exact bit pattern. The attribute name matches the one
-          // written by h5wasm so it overwrites the string value.
-          const refDouble = new Float64Array(refBytes.buffer, refBytes.byteOffset, 1)[0];
-          const attrPtr = wasmString(RefModule, 'ONDE_DATASET:SETUP');
-          RefModule._h5r_set_attr_double(gid, attrPtr, refDouble);
-          freeWasmString(RefModule, attrPtr);
-
-          RefModule._free(refBuf);
-          RefModule._h5r_close_obj(gid);
-          fixedCount++;
-          idx++;
+        if (isArray && targetPaths.length > 1) {
+          // Concatenate null-terminated paths into one buffer
+          const totalLen = targetPaths.reduce((sum, p) => sum + p.length + 1, 0);
+          const pathsBuf = RefModule._malloc(totalLen);
+          let offset = 0;
+          for (const p of targetPaths) {
+            const encoded = new TextEncoder().encode(p + '\0');
+            RefModule.HEAPU8.set(encoded, pathsBuf + offset);
+            offset += encoded.length;
+          }
+          const aPtr = wasmString(RefModule, attrName);
+          RefModule._h5r_set_attr_ref_array(gid, aPtr, fid, pathsBuf, targetPaths.length);
+          freeWasmString(RefModule, aPtr);
+          RefModule._free(pathsBuf);
+        } else {
+          const targetPath = targetPaths[0];
+          const aPtr = wasmString(RefModule, attrName);
+          const tPtr = wasmString(RefModule, targetPath);
+          RefModule._h5r_set_attr_ref(gid, aPtr, fid, tPtr);
+          freeWasmString(RefModule, tPtr);
+          freeWasmString(RefModule, aPtr);
         }
+
+        RefModule._h5r_close_obj(gid);
+        fixedCount++;
       }
 
-      console.log(`[ref] fixed ${fixedCount} dataset groups with HDF5 references`);
+      console.log(`[ref] upgraded ${fixedCount} attributes to HDF5 object references`);
     } finally {
       RefModule._h5r_close(fid);
     }

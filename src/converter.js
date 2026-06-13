@@ -938,6 +938,30 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
       // Fix 3: Add ONDE:TYPE_TAGS on probe groups
       setH5Attr(pg, 'ONDE:TYPE_TAGS', ['ONDE_UT_ELEMENTS']);
     }
+
+    // ── Reference Attributes on GEOMETRIC_SETUP ──────────────────
+    // Store target paths as string attributes; applyHdf5References
+    // will upgrade them to H5T_STD_REF_OBJ references in post-processing.
+
+    // PROBE_LIST: array of probe paths
+    if (probes.length > 0) {
+      const probePaths = probes.map((_, i) => `/ONDE_PROBE_${i}`);
+      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:PROBE_LIST', probePaths);
+    }
+
+    // COMPONENT: reference to the component group
+    if (specimens.length > 0) {
+      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:COMPONENT', '/ONDE_COMPONENT');
+    }
+
+    // COUPLING: reference to the first coupling group (if any)
+    if (wedges.length > 0) {
+      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:COUPLING', '/ONDE_COUPLING_0');
+    }
+
+    // GEOMETRIC_SETUP: reference from SETUP to GEOMETRIC_SETUP
+    setH5Attr(sg, 'ONDE_SETUP:GEOMETRIC_SETUP', '/ONDE_GEOMETRIC_SETUP');
+
   } catch (e) {
     stats.warnings.push(`OND setup write error: ${e.message}`);
   }
