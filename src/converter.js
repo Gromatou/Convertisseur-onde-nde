@@ -216,6 +216,11 @@ async function convertNdeToOnde(inFile, FS, stats) {
         let dataType = 'AMAX';
         if (nds.dataClass === 'CScanTime') dataType = 'TIME_OF_FLIGHT';
         setH5Attr(ondeGroup, 'ONDE_DATASET_UT_CSCAN:DATATYPE', dataType);
+
+        // CSCAN GATES: create ONDE_UT_GATE groups from NDE process gates
+        if (ndegroup.processes) {
+          writeOndeGates(out, ndegroup.processes, ondeGroupPath);
+        }
       }
 
       datasetRefs.push({ path: ondeGroupPath, type: ondeType.base });
@@ -1069,6 +1074,49 @@ function writeOndeAcquisitionTrajectory(outFile, setup, stats) {
     }
   }
   return trajPaths;
+}
+
+// ── NDE → ONDE: Gate Conversion ──────────────────────────────────────────
+const NDE_GATE_POLARITY = { 'Absolute': 'ABSOLUTE', 'Positive': 'POSITIVE', 'Negative': 'NEGATIVE' };
+const NDE_GATE_DETECTION = { 'Peak': 'FIRST_PEAK', 'Crossing': 'FIRST_FLANK' };
+
+function writeOndeGates(outFile, processes, datasetPath) {
+  for (const proc of processes) {
+    // Look for gates in any process type that has them
+    const ulProc = proc.ultrasonicConventional || proc.ultrasonicPhasedArray || proc.ultrasonicMatrixCapture;
+    const gateProcess = proc.ultrasonicGates || proc.tfmBoxGates || proc.thickness;
+    let gates = null;
+
+    if (ulProc && ulProc.gates && Array.isArray(ulProc.gates)) {
+      gates = ulProc.gates;
+    } else if (gateProcess && gateProcess.gates && Array.isArray(gateProcess.gates)) {
+      gates = gateProcess.gates;
+    }
+
+    if (!gates) continue;
+
+    const gateRefPaths = [];
+    for (let gi = 0; gi < gates.length; gi++) {
+      const ng = gates[gi];
+      const gatePath = `${datasetPath}/ONDE_UT_GATE_${gi}`;
+      outFile.create_group(gatePath);
+      const og = outFile.get(gatePath);
+      setH5Attr(og, 'ONDE:TYPE', ['ONDE_UT_GATE']);
+      if (ng.start !== undefined) setH5Attr(og, 'ONDE_UT_GATE:START', ng.start);
+      if (ng.length !== undefined) setH5Attr(og, 'ONDE_UT_GATE:WIDTH', ng.length);
+      if (ng.threshold !== undefined) setH5Attr(og, 'ONDE_UT_GATE:THRESHOLD', ng.threshold);
+      if (ng.thresholdPolarity) setH5Attr(og, 'ONDE_UT_GATE:POLARITY', NDE_GATE_POLARITY[ng.thresholdPolarity] || 'ABSOLUTE');
+      if (ng.synchronization && ng.synchronization.triggeringEvent) {
+        setH5Attr(og, 'ONDE_UT_GATE:DETECTION', NDE_GATE_DETECTION[ng.synchronization.triggeringEvent] || 'FIRST_PEAK');
+      }
+      gateRefPaths.push(gatePath);
+    }
+    if (gateRefPaths.length > 0) {
+      const dsGroup = outFile.get(datasetPath);
+      setH5Attr(dsGroup, 'ONDE_DATASET_UT_CSCAN:GATES', gateRefPaths);
+    }
+    break; // Only process first matching process
+  }
 }
 
 function writeOndeSetupFromNde(outFile, setup, stats) {
