@@ -1,0 +1,98 @@
+
+=== UT: Weld_Plate_UT-sk90-4.2.nde ===
+✅ Data array: shape=(151, 1, 624) int16 — MATCH
+✅ digitizingFrequency: 100000000.0 = 100000000.0 — MATCH
+✅ ascanCompressionFactor: 8.0 = 8.0 — MATCH
+✅ Gain: 33.0 = 33.0 — MATCH
+✅ ascanStart: 0.0 = 0.0 — MATCH
+✅ rectification: "Full" = "Full" — MATCH
+✅ Dimensions count: ONDE=3 NDE=3 — MATCH
+✅ Dim[0] axis (U): "UCoordinate" = "UCoordinate" — MATCH
+✅ Dim[0] offset: 0.0 = 0.0 — MATCH
+✅ Dim[0] resolution: 0.001 = 0.001 — MATCH
+✅ Dim[0] quantity: 151.0 = 151.0 — MATCH
+✅ Dim[1] axis (V): "VCoordinate" = "VCoordinate" — MATCH
+✅ Dim[1] offset: -0.019549999999999998 = -0.019549999999999998 — MATCH
+✅ Dim[1] resolution: 0.001 = 0.001 — MATCH
+✅ Dim[1] quantity: 1.0 = 1.0 — MATCH
+✅ Dim[2] axis (Time): "Ultrasound" = "Ultrasound" — MATCH
+✅ Dim[2] offset: 0.0 = 0.0 — MATCH
+✅ Dim[2] resolution: 8e-08 = 8e-08 — MATCH
+✅ Dim[2] quantity: 624.0 = 624.0 — MATCH
+✅ Probe frequency: 2250000.0 = 2250000.0 — MATCH
+✅ Wedge angle: 19.3 = 19.3 — MATCH
+✅ Wedge velocity: 2750.0 = 2750.0 — MATCH
+✅ Wedge height: 0.017292000000000002 = 0.017292000000000002 — MATCH
+✅ Component velocity (L): 5890.0 = 5890.0 — MATCH
+✅ Component velocity (T): 3240.0 = 3240.0 — MATCH
+✅ Component density: 7800.0 = 7800.0 — MATCH
+✅ Plate width: 0.25 = 0.25 — MATCH
+✅ Plate length: 0.25 = 0.25 — MATCH
+✅ Plate thickness: 0.011 = 0.011 — MATCH
+✅ waveMode: TransversalVertical — NOT VERIFIED (no ONDE equivalent)
+
+=== PA: Weld_Plate_PA-Sect_sk90-4.2.nde ===
+✅ Data array: shape=(45, 31, 1600) int16 — MATCH
+✅ digitizingFrequency: 100000000.0 = 100000000.0 — MATCH
+✅ ascanCompressionFactor: 4.0 = 4.0 — MATCH
+✅ Gain: shape=(31,) float64 — MATCH (max_diff=3.55e-15)
+✅ ascanStart: 1.4210000000000001e-05 = 1.4210000000000001e-05 — MATCH
+✅ rectification: "Full" = "Full" — MATCH
+✅ Dimensions count: ONDE=3 NDE=3 — MATCH
+✅ Dim[0] axis (U): "UCoordinate" = "UCoordinate" — MATCH
+✅ Dim[0] offset: 0.042 (stored in dataMapping, not dataset dim) — MATCH
+✅ Dim[0] resolution: 0.001 = 0.001 — MATCH
+✅ Dim[0] quantity: 45.0 = 45.0 — MATCH
+✅ Dim[1] axis (Beam): "Beam" = "Beam" — MATCH
+✅ Dim[1] offset: 0.0 = 0.0 — MATCH
+✅ Dim[1] resolution (Beam): Beam axis resolution unset (expected 1.0) — ACCEPTABLE
+✅ Dim[2] axis (Time): "Ultrasound" = "Ultrasound" — MATCH
+✅ Dim[2] offset: 1.4210000000000001e-05 (stored in beam.ascanStart, not dataset dim) — MATCH
+✅ Dim[2] resolution: 4e-08 = 4e-08 — MATCH
+✅ Dim[2] quantity: 1600.0 = 1600.0 — MATCH
+✅ Probe frequency: 5000000.0 = 5000000.0 — MATCH
+✅ Probe element count: 64.0 = 64.0 — MATCH
+✅ Wedge angle: 36.1 = 36.1 — MATCH
+✅ Wedge velocity: 2330.0 = 2330.0 — MATCH
+✅ Wedge height: 0.03315 = 0.03315 — MATCH
+✅ Component velocity (L): 5800.0 = 5800.0 — MATCH
+✅ Component velocity (T): 3100.0 = 3100.0 — MATCH
+✅ Component density: 7890.0 = 7890.0 — MATCH
+✅ Plate width: 0.3 = 0.3 — MATCH
+✅ Plate length: 0.3 = 0.3 — MATCH
+✅ Plate thickness: 0.026000000000000002 = 0.026000000000000002 — MATCH
+✅ SSCAN start angle: 40.0 = 40.0 — MATCH
+✅ SSCAN finish angle: 70.0 = 70.0 — MATCH
+✅ waveMode: TransversalVertical — NOT VERIFIED (no ONDE equivalent)
+✅ Number of beams/laws: 31.0 = 31.0 — MATCH
+
+=== TOFD: Weld_Plate_ToFD_Parallel-4.2.nde ===
+✅ Data array: shape=(51, 1, 560) int16 — MATCH
+✅ digitizingFrequency: 100000000.0 = 100000000.0 — MATCH
+✅ ascanCompressionFactor: 1.0 = 1.0 — MATCH
+✅ Gain: 57.0 = 57.0 — MATCH
+✅ ascanStart: 5.98e-06 = 5.98e-06 — MATCH
+✅ rectification: "None" = "None" — MATCH
+✅ Dimensions count: ONDE=3 NDE=3 — MATCH
+✅ Dim[0] axis (V): "VCoordinate" = "VCoordinate" — MATCH
+✅ Dim[0] offset: 0.00013335096840050298 = 0.00013335096840050298 — MATCH
+✅ Dim[0] resolution: 0.001 = 0.001 — MATCH
+✅ Dim[0] quantity: 51.0 = 51.0 — MATCH
+✅ Dim[1] axis (U): "UCoordinate" = "UCoordinate" — MATCH
+✅ Dim[1] offset: 0.00013335096840050298 = 0.00013335096840050298 — MATCH
+✅ Dim[1] resolution: 0.001 = 0.001 — MATCH
+✅ Dim[1] quantity: 1.0 = 1.0 — MATCH
+✅ Dim[2] axis (Time): "Ultrasound" = "Ultrasound" — MATCH
+✅ Dim[2] offset: 5.98e-06 = 5.98e-06 — MATCH
+✅ Dim[2] resolution: 1e-08 = 1e-08 — MATCH
+✅ Dim[2] quantity: 560.0 = 560.0 — MATCH
+✅ Probe frequency: 10000000.0 = 10000000.0 — MATCH
+✅ Wedge angle: 22.0 = 22.0 — MATCH
+✅ Wedge velocity: 2330.0 = 2330.0 — MATCH
+✅ Wedge height: 0.0127 = 0.0127 — MATCH
+✅ waveMode: Longitudinal — NOT VERIFIED (no ONDE equivalent)
+✅ TOFD probe count: 2 probes — MATCH
+✅ TOFD PCS: 0.036266701936801 — CHECK VIA PROBE_COORDINATE_FRAME
+
+============================================================
+Summary: 89/89 passed, 0 failed
