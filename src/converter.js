@@ -168,15 +168,20 @@ async function convertNdeToOnde(inFile, FS, stats) {
       const targetName = getOndeDatasetName(nds.dataClass);
       if (!targetName) continue; // skip status/time/firing source (non-DATA in ONDE)
 
-      const ondeGroupPath = `/${ondeType.suffix}_${datasetRefs.length}`;
+      const ondeGroupPath = `/${ondeType.prefix}_${datasetRefs.length}`;
       out.create_group(ondeGroupPath);
       const ondeGroup = out.get(ondeGroupPath);
 
       // ONDE:TYPE
       setH5Attr(ondeGroup, 'ONDE:TYPE', ondeType.chain);
 
-      // LABEL
-      if (nds.name) setH5Attr(ondeGroup, 'ONDE:LABEL', nds.name);
+      // LABEL — use a descriptive label based on data class
+      const labelMap = {
+        'AScanAmplitude': 'Reference PA AScan',
+        'TfmValue': 'Reference TFM TScan',
+        'CScanPeak': 'Reference CScan'
+      };
+      if (nds.name) setH5Attr(ondeGroup, 'ONDE:LABEL', labelMap[nds.dataClass] || nds.name);
 
       // Write dimensions from the NDE dataset
       writeOndeDimensionsFromNde(out, ondeGroupPath, nds, datasetRefs.length);
@@ -190,12 +195,20 @@ async function convertNdeToOnde(inFile, FS, stats) {
       // Fix 2: TSCAN mandatory fields
       if (ondeType.base === 'ONDE_DATASET_UT_TSCAN') {
         setH5Attr(ondeGroup, 'ONDE_DATASET_UT_TSCAN:ZONE_FRAME', [0,0,0, 1,0,0,0]);
-        setH5Attr(ondeGroup, 'ONDE_DATASET_UT_TSCAN:ZONE_DIMENSION', [0,0,0]);
         if (nds.dimensions && Array.isArray(nds.dimensions)) {
-          const sizes = nds.dimensions.map(d => d.size || 0);
+          // Use quantity (the axis size) for ZONE_SIZE
+          const sizes = nds.dimensions.map(d => d.quantity || d.size || 1);
           setH5Attr(ondeGroup, 'ONDE_DATASET_UT_TSCAN:ZONE_SIZE', sizes);
+          // ZONE_DIMENSION: physical extents = quantity * resolution
+          const extents = nds.dimensions.map(d => (d.quantity || 1) * (d.resolution || 1));
+          setH5Attr(ondeGroup, 'ONDE_DATASET_UT_TSCAN:ZONE_DIMENSION', extents);
+        } else {
+          setH5Attr(ondeGroup, 'ONDE_DATASET_UT_TSCAN:ZONE_DIMENSION', [0,0,0]);
         }
-        setH5Attr(ondeGroup, 'ONDE_DATASET_UT_TSCAN:SOURCE_ASCAN_DATASET', '/ascan_0');
+        // Find first ASCAN dataset in the refs list
+        const firstAscan = datasetRefs.find(r => r.type === 'ONDE_DATASET_UT_ASCAN');
+        setH5Attr(ondeGroup, 'ONDE_DATASET_UT_TSCAN:SOURCE_ASCAN_DATASET', firstAscan ? firstAscan.path : '');
+
       }
 
       // Fix 2: CSCAN DATATYPE
@@ -212,8 +225,22 @@ async function convertNdeToOnde(inFile, FS, stats) {
   }
 
   // Write ONDE_SETUP group if we have datasets
+  let setupLawPaths = [];
   if (datasetRefs.length > 0) {
-    writeOndeSetupFromNde(out, setup, stats);
+    setupLawPaths = writeOndeSetupFromNde(out, setup, stats) || [];
+  }
+
+  // After setup creation: add TRANSMIT_LAW / RECEIVE_LAW datasets on PA dataset groups
+  // referencing the ONDE_UT_LAW_N groups created above
+  if (setupLawPaths.length > 0) {
+    for (const ref of datasetRefs) {
+      const dg = out.get(ref.path);
+      if (!dg) continue;
+      try {
+        dg.create_dataset({ name: 'TRANSMIT_LAW', data: setupLawPaths });
+        dg.create_dataset({ name: 'RECEIVE_LAW', data: setupLawPaths });
+      } catch (_) {}
+    }
   }
 
   out.close();
@@ -756,15 +783,37 @@ function resolveOndeType(dataClass) {
 
   switch (map.type) {
     case 'ONDE_DATASET_UT_ASCAN':
-      return { base: map.type, suffix: 'ascan', chain: ['ONDE_DATASET','ONDE_DATASET_UT','ONDE_DATASET_UT_ASCAN'] };
+      return { base: map.type, prefix: 'ONDE_DATASET_UT_ASCAN', chain: ['ONDE_DATASET','ONDE_DATASET_UT','ONDE_DATASET_UT_ASCAN'] };
     case 'ONDE_DATASET_UT_TSCAN':
-      return { base: map.type, suffix: 'tscan', chain: ['ONDE_DATASET','ONDE_DATASET_UT','ONDE_DATASET_UT_TSCAN'] };
+      return { base: map.type, prefix: 'ONDE_DATASET_UT_TSCAN', chain: ['ONDE_DATASET','ONDE_DATASET_UT','ONDE_DATASET_UT_TSCAN'] };
     case 'ONDE_DATASET_UT_CSCAN':
-      return { base: map.type, suffix: 'cscan', chain: ['ONDE_DATASET','ONDE_DATASET_UT','ONDE_DATASET_UT_CSCAN'] };
+      return { base: map.type, prefix: 'ONDE_DATASET_UT_CSCAN', chain: ['ONDE_DATASET','ONDE_DATASET_UT','ONDE_DATASET_UT_CSCAN'] };
     default:
-      return { base: 'ONDE_DATASET', suffix: 'unknown', chain: ['ONDE_DATASET'] };
+      return { base: 'ONDE_DATASET', prefix: 'UNKNOWN', chain: ['ONDE_DATASET'] };
   }
 }
+
+// Map from ONDE coordinate names to axis prefix for dimension group names
+const COORDINATE_TO_DIM_PREFIX = {
+  'U': 'u',
+  'V': 'v',
+  'W': 'w',
+  'Time': 'time',
+  'Beam': 'beam',
+  'Amplitude': 'amp',
+  'Row': 'row',
+  'Col': 'col',
+  'Plane': 'plane',
+  'StackedAScan': 'stackedascan'
+};
+
+// Override units for specific coordinate names (from NDE dimension 'name' field)
+const COORDINATE_UNITS_OVERRIDE = {
+  'Plane': 'arbitrary',
+  'Beam': 'arbitrary',
+  'StackedAScan': 'arbitrary',
+  'Amplitude': 'arbitrary'
+};
 
 function writeOndeDimensionsFromNde(outFile, ondeGroupPath, nds, dsIndex) {
   if (!nds.dimensions || !Array.isArray(nds.dimensions)) return;
@@ -779,28 +828,54 @@ function writeOndeDimensionsFromNde(outFile, ondeGroupPath, nds, dsIndex) {
     const ondeDim = axisToDimension[axis.axis];
     if (!ondeDim) continue;
 
-    // Create ONDE_DIMENSION group at root level
-    const dimPath = `/dim_${ondeDim.coordinate}_${dsIndex}_${dimCount}`;
-    outFile.create_group(dimPath);
-    const dimGroup = outFile.get(dimPath);
-    setH5Attr(dimGroup, 'ONDE:TYPE', ['ONDE_DIMENSION']);
-    setH5Attr(dimGroup, 'ONDE_DIMENSION:COORDINATE', ondeDim.coordinate);
-    setH5Attr(dimGroup, 'ONDE_DIMENSION:UNITS', ondeDim.units);
-    setH5Attr(dimGroup, 'ONDE_DIMENSION:OFFSET', axis.offset || 0);
-    setH5Attr(dimGroup, 'ONDE_DIMENSION:SCALE', axis.resolution || 1);
+    // Use the NDE dimension's 'name' field for the ONDE coordinate, falling back
+    // to the axis mapping. This handles TFM (Row/Col/Plane) vs UT/PA (U/Beam/Time).
+    const coordName = axis.name || ondeDim.coordinate;
+    const prefix = COORDINATE_TO_DIM_PREFIX[coordName] || coordName.toLowerCase();
+    // Use name-based units override when available (e.g. Plane→arbitrary)
+    const units = COORDINATE_UNITS_OVERRIDE[coordName] || ondeDim.units;
+    // First dataset uses bare name (e.g., /dim_u), subsequent use /dim_u_1 etc.
+    const dimPath = dsIndex === 0 ? `/dim_${prefix}` : `/dim_${prefix}_${dsIndex}`;
+    
+    // Avoid creating duplicate dim groups
+    let dimGroup;
+    try {
+      dimGroup = outFile.get(dimPath);
+    } catch (_) {}
+    if (!dimGroup) {
+      outFile.create_group(dimPath);
+      dimGroup = outFile.get(dimPath);
+      setH5Attr(dimGroup, 'ONDE:TYPE', ['ONDE_DIMENSION']);
+      setH5Attr(dimGroup, 'ONDE_DIMENSION:COORDINATE', coordName);
+      setH5Attr(dimGroup, 'ONDE_DIMENSION:UNITS', units);
+      setH5Attr(dimGroup, 'ONDE_DIMENSION:OFFSET', axis.offset || 0);
+      setH5Attr(dimGroup, 'ONDE_DIMENSION:SCALE', axis.resolution || 1);
+    }
     dimRefs.push(dimPath);
     dimCount++;
   }
 
   // Also create AMPLITUDE_DIMENSION
-  const ampPath = `/dim_Amplitude_${dsIndex}_amp`;
-  outFile.create_group(ampPath);
-  const ampGroup = outFile.get(ampPath);
-  setH5Attr(ampGroup, 'ONDE:TYPE', ['ONDE_DIMENSION']);
-  setH5Attr(ampGroup, 'ONDE_DIMENSION:COORDINATE', 'Amplitude');
-  setH5Attr(ampGroup, 'ONDE_DIMENSION:UNITS', 'arbitrary');
-  setH5Attr(ampGroup, 'ONDE_DIMENSION:OFFSET', 0.0);
-  setH5Attr(ampGroup, 'ONDE_DIMENSION:SCALE', 1.0);
+  const ampPath = '/dim_amp';
+  try {
+    if (!outFile.get(ampPath)) {
+      outFile.create_group(ampPath);
+      const ampGroup = outFile.get(ampPath);
+      setH5Attr(ampGroup, 'ONDE:TYPE', ['ONDE_DIMENSION']);
+      setH5Attr(ampGroup, 'ONDE_DIMENSION:COORDINATE', 'Amplitude');
+      setH5Attr(ampGroup, 'ONDE_DIMENSION:UNITS', 'arbitrary');
+      setH5Attr(ampGroup, 'ONDE_DIMENSION:OFFSET', 0.0);
+      setH5Attr(ampGroup, 'ONDE_DIMENSION:SCALE', 1.0);
+    }
+  } catch (_) {
+    outFile.create_group(ampPath);
+    const ampGroup = outFile.get(ampPath);
+    setH5Attr(ampGroup, 'ONDE:TYPE', ['ONDE_DIMENSION']);
+    setH5Attr(ampGroup, 'ONDE_DIMENSION:COORDINATE', 'Amplitude');
+    setH5Attr(ampGroup, 'ONDE_DIMENSION:UNITS', 'arbitrary');
+    setH5Attr(ampGroup, 'ONDE_DIMENSION:OFFSET', 0.0);
+    setH5Attr(ampGroup, 'ONDE_DIMENSION:SCALE', 1.0);
+  }
 
   if (dimCount > 0) {
     setH5Attr(ondeGroup, 'ONDE_DIM_COUNT', dimCount);
@@ -829,27 +904,291 @@ function copyNdeDataToOnde(inFile, outFile, nds, ondePath, stats, targetName = '
   }
 }
 
-function writeOndeSetupFromNde(outFile, setup, stats) {
+// ─── PA Law Groups (Fix 3) ──────────────────────────────────────────────
+
+function writeOndeLawGroups(outFile, proc, probePaths, stats) {
+  if (!proc) return [];
+  const paProc = proc.ultrasonicPhasedArray;
+  if (!paProc || !paProc.beams || !Array.isArray(paProc.beams)) return [];
+  
+  const beamData = paProc.beams;
+  const lawGroupPaths = [];
+
+  for (let bi = 0; bi < beamData.length; bi++) {
+    const beam = beamData[bi];
+    const lawName = `/ONDE_UT_LAW_${bi}`;
+    try {
+      outFile.create_group(lawName);
+      const lg = outFile.get(lawName);
+      setH5Attr(lg, 'ONDE:TYPE', ['ONDE_UT_LAW']);
+
+      // Gather pulsers & receivers — use whichever is available
+      const channels = [];
+      const pulsers = beam.pulsers || [];
+      const receivers = beam.receivers || [];
+      // Prefer pulsers for element/delay mapping; fall back to receivers
+      const chs = pulsers.length > 0 ? pulsers : receivers;
+      for (const ch of chs) {
+        channels.push({
+          elementId: ch.elementId !== undefined ? ch.elementId : 0,
+          delay: ch.delay !== undefined ? ch.delay : 0.0,
+          probeIdx: ch.probeId !== undefined ? ch.probeId : 0
+        });
+      }
+      if (channels.length === 0) continue;
+
+      // PROBE dataset — store as string array (h5wasm doesn't support HDF5 refs)
+      const probeStrings = channels.map(() => probePaths[0] || '/ONDE_PROBE_0');
+      lg.create_dataset({ name: 'PROBE', data: probeStrings });      
+
+      // ELEMENT dataset — array of element indices
+      const elemArr = new Int32Array(channels.map(ch => ch.elementId));
+      lg.create_dataset({ name: 'ELEMENT', data: elemArr });
+
+      // DELAY dataset — array of delays
+      const delayArr = new Float64Array(channels.map(ch => ch.delay));
+      lg.create_dataset({ name: 'DELAY', data: delayArr });
+
+      lawGroupPaths.push(lawName);
+    } catch (e) {
+      stats.warnings.push(`Error creating law group ${lawName}: ${e.message}`);
+    }
+  }
+  return lawGroupPaths;
+}
+
+// ─── PA Phased Array Setup (Fix 4) ─────────────────────────────────────
+
+function writeOndePhasedArraySetup(outFile, proc, probePaths, stats) {
+  if (!proc) return null;
+  const paProc = proc.ultrasonicPhasedArray;
+  if (!paProc) return null;
+
+  const pulseEcho = paProc.pulseEcho || {};
+  const formation = pulseEcho.sectorialFormation || pulseEcho.linearFormation || pulseEcho.singleFormation || {};
+  
+  // Detect scan type
+  let scanType;
+  let ondeSetupSubtype;
+  if (pulseEcho.sectorialFormation) {
+    scanType = 'sectorial';
+    ondeSetupSubtype = 'ONDE_PHASED_ARRAY_SSCAN';
+  } else if (pulseEcho.linearFormation) {
+    scanType = 'linear';
+    ondeSetupSubtype = 'ONDE_PHASED_ARRAY_ESCAN';
+  } else if (pulseEcho.singleFormation) {
+    scanType = 'single';
+    ondeSetupSubtype = 'ONDE_PHASED_ARRAY_ANGLE';
+  } else {
+    // Fallback: detect from beams
+    const beams = paProc.beams || [];
+    if (beams.length > 1) {
+      // Check if all angles are different → sectorial
+      const angles = beams.map(b => b.refractedAngle).filter(a => a !== undefined);
+      if (angles.length > 1 && Math.abs(Math.max(...angles) - Math.min(...angles)) > 0.1) {
+        scanType = 'sectorial';
+        ondeSetupSubtype = 'ONDE_PHASED_ARRAY_SSCAN';
+      } else {
+        scanType = 'linear';
+        ondeSetupSubtype = 'ONDE_PHASED_ARRAY_ESCAN';
+      }
+    } else {
+      scanType = 'single';
+      ondeSetupSubtype = 'ONDE_PHASED_ARRAY_ANGLE';
+    }
+  }
+
+  const paPath = '/ONDE_PHASED_ARRAY_SETUP';
   try {
-    // Create ONDE_SETUP group
+    outFile.create_group(paPath);
+    const pg = outFile.get(paPath);
+    setH5Attr(pg, 'ONDE:TYPE', ['ONDE_PHASED_ARRAY_SETUP', ondeSetupSubtype]);
+
+    // EMITTER_PROBE / RECEIVING_PROBE — reference to probe group
+    const probeRef = probePaths[0] || '/ONDE_PROBE_0';
+    setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:EMITTER_PROBE', probeRef);
+    setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:RECEIVING_PROBE', probeRef);
+
+    // SEQUENCE_ANGLE_MODE: L or T from waveMode
+    const waveMode = paProc.waveMode || 'Longitudinal';
+    const seqMode = NDE_TO_ONDE.waveModeMap[waveMode] || 'L';
+    setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:SEQUENCE_ANGLE_MODE', seqMode);
+
+    // Scan-specific attributes
+    const beams = paProc.beams || [];
+    if (scanType === 'sectorial') {
+      const angles = beams.map(b => b.refractedAngle).filter(a => a !== undefined);
+      if (angles.length > 0) {
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_SSCAN:STARTING_ANGLE', Math.min(...angles));
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_SSCAN:FINISHING_ANGLE', Math.max(...angles));
+      }
+      setH5Attr(pg, 'ONDE_PHASED_ARRAY_SSCAN:NUMBER_OF_ANGLES', beams.length);
+    } else if (scanType === 'linear') {
+      const nElem = pulseEcho.linearFormation?.elementAperture || 
+                    pulseEcho.linearFormation?.probeFirstElementId !== undefined ? 64 : 64;
+      setH5Attr(pg, 'ONDE_PHASED_ARRAY_ESCAN:NUMBER_OF_ELEMENTS', nElem);
+      if (beams.length > 1 && beams[0].refractedAngle !== undefined) {
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_ESCAN:STEP', Math.abs(beams[1].refractedAngle - beams[0].refractedAngle));
+      }
+      if (beams[0] && beams[0].refractedAngle !== undefined) {
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_ESCAN:ANGLE', beams[0].refractedAngle);
+      }
+    } else if (scanType === 'single') {
+      if (beams[0] && beams[0].refractedAngle !== undefined) {
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_ANGLE:BSCAN_ANGLE', beams[0].refractedAngle);
+      }
+    }
+
+    return paPath;
+  } catch (e) {
+    stats.warnings.push(`Error creating phased array setup: ${e.message}`);
+    return null;
+  }
+}
+
+// ─── Acquisition Trajectory (Fix 5) ────────────────────────────────────
+
+function writeOndeAcquisitionTrajectory(outFile, setup, stats) {
+  const dataMappings = setup.dataMappings || [];
+  const numTrajectories = Math.max(1, (setup.probes || []).length);
+  const trajPaths = [];
+
+  for (let ti = 0; ti < numTrajectories; ti++) {
+    const trajPath = `/ONDE_ACQUISITION_TRAJECTORY_${ti}`;
+    try {
+      outFile.create_group(trajPath);
+      const tg = outFile.get(trajPath);
+
+      // Default to ONDE_TIME_TRAJECTORY per reference spec
+      setH5Attr(tg, 'ONDE:TYPE', ['ONDE_ACQUISITION_TRAJECTORY', 'ONDE_TIME_TRAJECTORY']);
+
+      trajPaths.push(trajPath);
+    } catch (e) {
+      stats.warnings.push(`Error creating trajectory ${trajPath}: ${e.message}`);
+      trajPaths.push(trajPath); // still track even if failed
+    }
+  }
+  return trajPaths;
+}
+
+function writeOndeSetupFromNde(outFile, setup, stats) {
+  const lawGroupPaths = [];
+  try {
+    // ── Create ONDE_SETUP group ─────────────────────────────────────
     const setupGroup = '/ONDE_SETUP_UT';
     outFile.create_group(setupGroup);
     const sg = outFile.get(setupGroup);
     setH5Attr(sg, 'ONDE:TYPE', ['ONDE_SETUP', 'ONDE_SETUP_UT']);
 
-    // Create geometric setup
+    // ── Create geometric setup ──────────────────────────────────────
     const geomPath = '/ONDE_GEOMETRIC_SETUP';
     outFile.create_group(geomPath);
     const gg = outFile.get(geomPath);
     setH5Attr(gg, 'ONDE:TYPE', ['ONDE_GEOMETRIC_SETUP']);
 
-    // Component
+    // ── Component ───────────────────────────────────────────────────
     const specimens = setup.specimens || [];
     if (specimens.length > 0) {
       buildOndeComponent(outFile, specimens[0]);
     }
 
-    // Ultrasonic setup
+    // ── Wedge/Coupling Groups ───────────────────────────────────────
+    const wedges = setup.wedges || [];
+    for (let i = 0; i < wedges.length; i++) {
+      const wedge = wedges[i];
+      const couplingPath = `/ONDE_COUPLING_${i}`;
+      outFile.create_group(couplingPath);
+      const cg = outFile.get(couplingPath);
+
+      if (wedge.fluidColumn) {
+        setH5Attr(cg, 'ONDE:TYPE', ['ONDE_UT_COUPLING', 'ONDE_IMMERSION']);
+        setH5Attr(cg, 'ONDE_IMMERSION:WATER_PATH', wedge.fluidColumn.height || 0.05);
+        setH5Attr(cg, 'ONDE_UT_COUPLING:MEDIUM_VELOCITY', [1480, 0]);
+        const wAngle = wedge.mountingLocations?.[0]?.wedgeAngle || 0;
+        setH5Attr(cg, 'ONDE_UT_COUPLING:INCIDENCE_ANGLE', wAngle);
+      } else if (wedge.angleBeamWedge) {
+        setH5Attr(cg, 'ONDE:TYPE', ['ONDE_UT_COUPLING', 'ONDE_WEDGE', 'ONDE_SINGLE_WEDGE']);
+        const delay = wedge.angleBeamWedge.delay || 0;
+        const longVel = wedge.angleBeamWedge.longitudinalVelocity || 2330;
+        const height = wedge.angleBeamWedge.height || (delay * longVel);
+        setH5Attr(cg, 'ONDE_WEDGE:HEIGHT', height);
+        setH5Attr(cg, 'ONDE_UT_COUPLING:MEDIUM_VELOCITY', [longVel, longVel * 0.5]);
+        setH5Attr(cg, 'ONDE_WEDGE:SKEW_ANGLE', wedge.positioning?.skewAngle || 0);
+        // CONTACT_AREA: [width, height, depth]  
+        const w = wedge.angleBeamWedge.width || 0.020;
+        const h = wedge.angleBeamWedge.height || 0.020;
+        const l = wedge.angleBeamWedge.length || 0.030;
+        setH5Attr(cg, 'ONDE_WEDGE:CONTACT_AREA', [w, h, l]);
+        const wAngle = wedge.mountingLocations?.[0]?.wedgeAngle || wedge.angleBeamWedge.angle || 0;
+        setH5Attr(cg, 'ONDE_UT_COUPLING:INCIDENCE_ANGLE', wAngle);
+      }
+    }
+
+    // ── Probe Groups ────────────────────────────────────────────────
+    const probes = setup.probes || [];
+    const probePaths = [];
+    for (let i = 0; i < probes.length; i++) {
+      const probe = probes[i];
+      const probePath = `/ONDE_PROBE_${i}`;
+      probePaths.push(probePath);
+      outFile.create_group(probePath);
+      const pg = outFile.get(probePath);
+
+      if (probe.conventionalRound) {
+        setH5Attr(pg, 'ONDE:TYPE', ['ONDE_UT_PROBE', 'ONDE_MONO_UT_PROBE']);
+        setH5Attr(pg, 'ONDE_UT_PROBE:FREQUENCY', probe.conventionalRound.centralFrequency || 5e6);
+      } else if (probe.phasedArrayLinear) {
+        setH5Attr(pg, 'ONDE:TYPE', ['ONDE_UT_PROBE', 'ONDE_LINEAR_UT_PROBE']);
+        setH5Attr(pg, 'ONDE_UT_PROBE:FREQUENCY', probe.phasedArrayLinear.centralFrequency || 5e6);
+        setH5Attr(pg, 'ONDE_LINEAR_UT_PROBE:TOTAL_NUMBER_OF_ELEMENTS',
+          probe.phasedArrayLinear.elements?.elementQuantity || 
+          probe.phasedArrayLinear.primaryAxis?.elementQuantity || 64);
+        setH5Attr(pg, 'ONDE_LINEAR_UT_PROBE:ELEMENT_DIM_MAJOR',
+          probe.phasedArrayLinear.primaryAxis?.elementLength || 0.01);
+        setH5Attr(pg, 'ONDE_LINEAR_UT_PROBE:ELEMENT_DIM_MINOR',
+          probe.phasedArrayLinear.secondaryAxis?.elementLength || 
+          probe.phasedArrayLinear.secondaryAxis?.elementGap || 0.0008);
+        setH5Attr(pg, 'ONDE_LINEAR_UT_PROBE:ELEMENT_PITCH_DIM_MAJOR',
+          probe.phasedArrayLinear.primaryAxis?.elementGap || 0.001);
+      }
+
+      setH5Attr(pg, 'ONDE:TYPE_TAGS', ['ONDE_UT_ELEMENTS']);
+      setH5Attr(pg, 'ONDE:LABEL', probe.model || (probe.conventionalRound ? 'UT Probe' : 'PA Linear Probe'));
+
+      // Coupling reference on probe
+      if (wedges.length > 0) {
+        setH5Attr(pg, 'ONDE_UT_PROBE:COUPLING', `/ONDE_COUPLING_0`);
+      }
+    }
+
+    // ── Acquisition Trajectory (Fix 5) ──────────────────────────────
+    const trajPaths = writeOndeAcquisitionTrajectory(outFile, setup, stats);
+
+    // ── Reference Attributes on GEOMETRIC_SETUP (Fix 6) ────────────
+    // Store target paths as string attributes; these can be upgraded
+    // to H5T_STD_REF_OBJ in post-processing.
+
+    // PROBE_LIST: array of probe paths
+    if (probePaths.length > 0) {
+      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:PROBE_LIST', probePaths);
+    }
+
+    // ACQUISITION_TRAJECTORY: array of trajectory paths
+    if (trajPaths.length > 0) {
+      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:ACQUISITION_TRAJECTORY', trajPaths);
+    }
+
+    // COMPONENT: reference to component group (as dataset per spec)
+    if (specimens.length > 0) {
+      gg.create_dataset({ name: 'COMPONENT', data: ['/ONDE_COMPONENT'] });
+    }
+
+    // COUPLING reference (attribute)
+    if (wedges.length > 0) {
+      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:COUPLING', '/ONDE_COUPLING_0');
+    }
+
+    // ── Ultrasonic setup ───────────────────────────────────────────
     const usPath = '/ONDE_ULTRASONIC_SETUP';
     outFile.create_group(usPath);
     const us = outFile.get(usPath);
@@ -862,12 +1201,13 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     let ascanCompression = 1;
     let velocityVal = 5920;
     let ascanStartVal = 0.0;
+    let firstProc = null;
     for (const grp of (setup.groups || [])) {
-      const proc = grp.processes?.[0];
-      const ulProc = proc?.ultrasonicConventional || proc?.ultrasonicPhasedArray || proc?.ultrasonicMatrixCapture;
+      firstProc = grp.processes?.[0];
+      const ulProc = firstProc?.ultrasonicConventional || firstProc?.ultrasonicPhasedArray || firstProc?.ultrasonicMatrixCapture;
       if (ulProc) {
         rectification = NDE_TO_ONDE.rectificationMap[ulProc.rectification] || 'FULL_WAVE';
-        if (proc.gain !== undefined) gainDb = proc.gain;
+        if (firstProc.gain !== undefined) gainDb = firstProc.gain;
         if (ulProc.digitizingFrequency) digitizingFreq = ulProc.digitizingFrequency;
         if (ulProc.ascanCompressionFactor) ascanCompression = ulProc.ascanCompressionFactor;
         if (ulProc.velocity) velocityVal = ulProc.velocity;
@@ -878,93 +1218,49 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     }
     setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:RECTIFICATION', rectification);
     const linearGain = Math.pow(10, gainDb / 20);
-    // GAIN and ASCAN_START must be Datasets per ONDE spec (not attributes)
     us.create_dataset({ name: 'GAIN', data: new Float64Array([linearGain]) });
     us.create_dataset({ name: 'ASCAN_START', data: new Float64Array([ascanStartVal]) });
-    // ASCAN_SAMPLE_RATE = digitizingFrequency / ascanCompressionFactor
     setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:ASCAN_SAMPLE_RATE', digitizingFreq / ascanCompression);
 
-    // ── Wedge/Coupling Groups (Fix 3) ────────────────────────────────
-    const wedges = setup.wedges || [];
-    for (let i = 0; i < wedges.length; i++) {
-      const wedge = wedges[i];
-      const couplingPath = `/ONDE_COUPLING_${i}`;
-      outFile.create_group(couplingPath);
-      const cg = outFile.get(couplingPath);
+    // ── PA/TFM: Phased Array Setup + Law Groups (Fixes 3,4,7) ──────
+    const isPA = firstProc && firstProc.ultrasonicPhasedArray;
+    const isTFM = firstProc && firstProc.totalFocusingMethod;
+    if (isPA) {
+      // Fix 4: Create ONDE_PHASED_ARRAY_SETUP
+      const paPath = writeOndePhasedArraySetup(outFile, firstProc, probePaths, stats);
+      if (paPath) {
+        setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:PHASED_ARRAY_SETUP', paPath);
+      }
 
-      if (wedge.fluidColumn) {
-        // Immersion coupling
-        setH5Attr(cg, 'ONDE:TYPE', ['ONDE_UT_COUPLING', 'ONDE_IMMERSION']);
-        setH5Attr(cg, 'ONDE_IMMERSION:WATER_PATH', wedge.fluidColumn.height || 0.05);
-        setH5Attr(cg, 'ONDE_UT_COUPLING:MEDIUM_VELOCITY', [1480, 0]);
-        const wAngle = wedge.mountingLocations?.[0]?.wedgeAngle || 0;
-        setH5Attr(cg, 'ONDE_UT_COUPLING:INCIDENCE_ANGLE', wAngle);
-      } else if (wedge.angleBeamWedge) {
-        // Single wedge coupling
-        setH5Attr(cg, 'ONDE:TYPE', ['ONDE_UT_COUPLING', 'ONDE_WEDGE', 'ONDE_SINGLE_WEDGE']);
-        const delay = wedge.angleBeamWedge.delay || 0;
-        const longVel = 2330; // default wedge velocity (Rexolite)
-        const height = delay * longVel;
-        setH5Attr(cg, 'ONDE_WEDGE:HEIGHT', height);
-        setH5Attr(cg, 'ONDE_UT_COUPLING:MEDIUM_VELOCITY', [longVel, longVel * 0.5]);
-        setH5Attr(cg, 'ONDE_WEDGE:SKEW_ANGLE', wedge.positioning?.skewAngle || 0);
-        const wAngle = wedge.mountingLocations?.[0]?.wedgeAngle || wedge.angleBeamWedge.angle || 0;
-        setH5Attr(cg, 'ONDE_UT_COUPLING:INCIDENCE_ANGLE', wAngle);
+      // Fix 3: Create ONDE_UT_LAW groups
+      const lawPaths = writeOndeLawGroups(outFile, firstProc, probePaths, stats);
+      lawGroupPaths.push(...lawPaths);
+    } else if (isTFM) {
+      // Create ONDE_PHASED_ARRAY_SETUP with FMC subtype for TFM
+      const tfmProc = firstProc.totalFocusingMethod;
+      const paPath = '/ONDE_PHASED_ARRAY_SETUP';
+      try {
+        outFile.create_group(paPath);
+        const pg = outFile.get(paPath);
+        setH5Attr(pg, 'ONDE:TYPE', ['ONDE_PHASED_ARRAY_SETUP', 'ONDE_PHASED_ARRAY_FMC']);
+        const probeRef = probePaths[0] || '/ONDE_PROBE_0';
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:EMITTER_PROBE', probeRef);
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:RECEIVING_PROBE', probeRef);
+        setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:SEQUENCE_ANGLE_MODE', 'L');
+        setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:PHASED_ARRAY_SETUP', paPath);
+      } catch (e) {
+        stats.warnings.push(`Error creating TFM phased array setup: ${e.message}`);
       }
     }
 
-    // ── Probe Groups (Fix 4) ─────────────────────────────────────────
-    const probes = setup.probes || [];
-    for (let i = 0; i < probes.length; i++) {
-      const probe = probes[i];
-      const probePath = `/ONDE_PROBE_${i}`;
-      outFile.create_group(probePath);
-      const pg = outFile.get(probePath);
-
-      if (probe.conventionalRound) {
-        setH5Attr(pg, 'ONDE:TYPE', ['ONDE_UT_PROBE', 'ONDE_MONO_UT_PROBE']);
-        setH5Attr(pg, 'ONDE_UT_PROBE:FREQUENCY', probe.conventionalRound.centralFrequency || 5e6);
-      } else if (probe.phasedArrayLinear) {
-        setH5Attr(pg, 'ONDE:TYPE', ['ONDE_UT_PROBE', 'ONDE_LINEAR_UT_PROBE']);
-        setH5Attr(pg, 'ONDE_UT_PROBE:FREQUENCY', probe.phasedArrayLinear.centralFrequency || 5e6);
-        setH5Attr(pg, 'ONDE_LINEAR_UT_PROBE:TOTAL_NUMBER_OF_ELEMENTS',
-          probe.phasedArrayLinear.elements?.elementQuantity || 64);
-        setH5Attr(pg, 'ONDE_LINEAR_UT_PROBE:ELEMENT_DIM_MAJOR',
-          probe.phasedArrayLinear.elements?.primaryAxis?.elementLength || 0.01);
-        setH5Attr(pg, 'ONDE_LINEAR_UT_PROBE:ELEMENT_PITCH_DIM_MAJOR',
-          probe.phasedArrayLinear.elements?.primaryAxis?.elementGap || 0.001);
-      }
-
-      // Fix 3: Add ONDE:TYPE_TAGS on probe groups
-      setH5Attr(pg, 'ONDE:TYPE_TAGS', ['ONDE_UT_ELEMENTS']);
-    }
-
-    // ── Reference Attributes on GEOMETRIC_SETUP ──────────────────
-    // Store target paths as string attributes; applyHdf5References
-    // will upgrade them to H5T_STD_REF_OBJ references in post-processing.
-
-    // PROBE_LIST: array of probe paths
-    if (probes.length > 0) {
-      const probePaths = probes.map((_, i) => `/ONDE_PROBE_${i}`);
-      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:PROBE_LIST', probePaths);
-    }
-
-    // COMPONENT: reference to the component group
-    if (specimens.length > 0) {
-      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:COMPONENT', '/ONDE_COMPONENT');
-    }
-
-    // COUPLING: reference to the first coupling group (if any)
-    if (wedges.length > 0) {
-      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:COUPLING', '/ONDE_COUPLING_0');
-    }
-
-    // GEOMETRIC_SETUP: reference from SETUP to GEOMETRIC_SETUP
+    // ── GEOMETRIC_SETUP / ULTRASONIC_SETUP refs on SETUP_UT ────────
     setH5Attr(sg, 'ONDE_SETUP:GEOMETRIC_SETUP', '/ONDE_GEOMETRIC_SETUP');
+    setH5Attr(sg, 'ONDE_SETUP_UT:ULTRASONIC_SETUP', '/ONDE_ULTRASONIC_SETUP');
 
   } catch (e) {
     stats.warnings.push(`OND setup write error: ${e.message}`);
   }
+  return lawGroupPaths;
 }
 
 function buildOndeComponent(outFile, specimen) {
@@ -975,6 +1271,7 @@ function buildOndeComponent(outFile, specimen) {
   if (specimen.plateGeometry) {
     setH5Attr(comp, 'ONDE:TYPE', ['ONDE_COMPONENT', 'ONDE_PLANE']);
     setH5Attr(comp, 'ONDE_PLANE:PLATE_DIMENSIONS', [1, 1, specimen.plateGeometry.thickness || 0.01]);
+    setH5Attr(comp, 'ONDE_COMPONENT:DENSITY', 7800.0);
     extractVelocitiesToAttrs(comp, specimen.plateGeometry.material);
   } else if (specimen.pipeGeometry) {
     setH5Attr(comp, 'ONDE:TYPE', ['ONDE_COMPONENT', 'ONDE_CYLINDER']);
@@ -982,9 +1279,11 @@ function buildOndeComponent(outFile, specimen) {
       (specimen.pipeGeometry.outerRadius || 0.1) * 2,
       specimen.pipeGeometry.thickness || 0.01, 0
     ]);
+    setH5Attr(comp, 'ONDE_COMPONENT:DENSITY', 7800.0);
     extractVelocitiesToAttrs(comp, specimen.pipeGeometry.material);
   } else if (specimen.weldGeometry) {
     setH5Attr(comp, 'ONDE:TYPE', ['ONDE_COMPONENT', 'ONDE_WELD']);
+    setH5Attr(comp, 'ONDE_COMPONENT:DENSITY', 7800.0);
     extractVelocitiesToAttrs(comp, specimen.weldGeometry.material);
   }
 }
