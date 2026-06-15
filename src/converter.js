@@ -1270,6 +1270,42 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     us.create_dataset({ name: 'ASCAN_START', data: new Float64Array([ascanStartVal]) });
     setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:ASCAN_SAMPLE_RATE', digitizingFreq / ascanCompression);
 
+    // ── TCG Curve (NDE ultrasonicTcg → ONDE TCG_CURVE) ─────────────
+    const tcgProc = (setup.groups || []).flatMap(g => g.processes || []).find(p => p.ultrasonicTcg);
+    if (tcgProc && tcgProc.ultrasonicTcg.points) {
+      const points = tcgProc.ultrasonicTcg.points;
+      // ONDE TCG_CURVE format: [N_Ascan, N_TCG] — 2 rows: time samples + gain (linear)
+      const tcgData = new Float64Array(points.length * 2);
+      for (let i = 0; i < points.length; i++) {
+        tcgData[i * 2] = points[i].time || 0;
+        tcgData[i * 2 + 1] = Math.pow(10, (points[i].gain || 0) / 20); // dB → linear
+      }
+      us.create_dataset({ name: 'TCG_CURVE', data: tcgData, shape: [points.length, 2] });
+    }
+
+    // ── Software Gain (NDE process.gain on Software impl → custom ONDE attr) ──
+    const swGainProc = (setup.groups || []).flatMap(g => g.processes || []).find(p => p.implementation === 'Software' && p.gain !== undefined && !p.ultrasonicConventional && !p.ultrasonicPhasedArray);
+    if (swGainProc) {
+      setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:SOFTWARE_GAIN_DB', swGainProc.gain);
+    }
+
+    // ── Filter Type ─────────────────────────────────────────────────
+    const mainProc = (setup.groups || []).flatMap(g => g.processes || []).find(p => p.ultrasonicConventional || p.ultrasonicPhasedArray || p.ultrasonicMatrixCapture);
+    if (mainProc) {
+      const ul = mainProc.ultrasonicConventional || mainProc.ultrasonicPhasedArray || mainProc.ultrasonicMatrixCapture;
+      if (ul) {
+        if (ul.filterType) setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_TYPE', NDE_TO_ONDE.filterMap[ul.filterType] || 'OTHER');
+        if (ul.smoothingFilter) setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_PARAMETERS', ul.smoothingFilter);
+        if (ul.digitalBandPassFilter) {
+          const bp = ul.digitalBandPassFilter;
+          if (bp.lowCutOffFrequency || bp.highCutOffFrequency) {
+            setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_DESCRIPTION', 
+              `LOW=${bp.lowCutOffFrequency || 0}Hz HIGH=${bp.highCutOffFrequency || 0}Hz`);
+          }
+        }
+      }
+    }
+
     // ── PA/TFM: Phased Array Setup + Law Groups (Fixes 3,4,7) ──────
     const isPA = firstProc && firstProc.ultrasonicPhasedArray;
     const isTFM = firstProc && firstProc.totalFocusingMethod;
