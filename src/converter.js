@@ -254,25 +254,115 @@ async function convertNdeToOnde(inFile, FS, stats) {
 
 // ─── HDF5 Helpers ───────────────────────────────────────────────────────
 
-/** Set a typed attribute on an HDF5 group/dataset */
+// Type registry parsed from ONDE_fields.csv: field_name → CSV type
+// Used to ensure correct HDF5 type (float64 vs int32) for each field
+const ONDE_FIELD_TYPES = {
+  'ONDE:FILETYPE': 'string', 'ONDE:VERSION': 'string',
+  'ONDE:TYPE': 'string', 'ONDE:LABEL': 'string',
+  'ONDE:TYPE_TAGS': 'string',
+  'ONDE_DATASET:SETUP': 'ref', 'ONDE_DATASET:OPERATOR': 'string',
+  'ONDE_DATASET:DATE_AND_TIME': 'string', 'ONDE_DATASET:DATA': 'any',
+  'ONDE_DATASET:AMPLITUDE_DIMENSION': 'ref', 'ONDE_DATASET:INDEX_DIMENSIONS': 'ref',
+  'ONDE_DATASET_UT_TSCAN:ZONE_FRAME': 'float', 'ONDE_DATASET_UT_TSCAN:ZONE_DIMENSION': 'float',
+  'ONDE_DATASET_UT_TSCAN:ZONE_SIZE': 'int', 'ONDE_DATASET_UT_TSCAN:RECONSTRUCTION_MODE': 'string',
+  'ONDE_DATASET_UT_TSCAN:REFERENCE_PROBE_INDEX': 'int', 'ONDE_DATASET_UT_TSCAN:SOURCE_ASCAN_DATASET': 'ref',
+  'ONDE_DATASET_UT_CSCAN:DATATYPE': 'string', 'ONDE_DATASET_UT_CSCAN:UNDERLYING_DATA': 'ref',
+  'ONDE_DATASET_UT_CSCAN:UNDERLYING_DATA_REFERENCE': 'int',
+  'ONDE_DATASET_UT_CSCAN:CSCAN_GRID': 'ref', 'ONDE_DATASET_UT_CSCAN:GATES': 'ref',
+  'ONDE_DIMENSION:COORDINATE': 'string', 'ONDE_DIMENSION:UNITS': 'string',
+  'ONDE_DIMENSION:OFFSET': 'float', 'ONDE_DIMENSION:SCALE': 'float',
+  'ONDE_UT_GATE:START': 'float', 'ONDE_UT_GATE:WIDTH': 'float',
+  'ONDE_UT_GATE:THRESHOLD': 'float', 'ONDE_UT_GATE:DETECTION': 'string',
+  'ONDE_UT_GATE:POLARITY': 'string',
+  'ONDE_SETUP:GEOMETRIC_SETUP': 'ref', 'ONDE_SETUP_UT:ULTRASONIC_SETUP': 'ref',
+  'ONDE_GEOMETRIC_SETUP:COMPONENT': 'ref', 'ONDE_GEOMETRIC_SETUP:PROBE_LIST': 'ref',
+  'ONDE_GEOMETRIC_SETUP:ACQUISITION_TRAJECTORY': 'ref',
+  'ONDE_GEOMETRIC_SETUP:COUPLING': 'ref',
+  'ONDE_GEOMETRIC_SETUP:PROBE_COORDINATE_FRAME': 'float',
+  'ONDE_COMPONENT:VELOCITIES': 'float', 'ONDE_COMPONENT:DENSITY': 'float',
+  'ONDE_COMPONENT:COMPONENT_FRAME': 'float', 'ONDE_COMPONENT:IMAGE': 'float',
+  'ONDE_PLANE:PLATE_DIMENSIONS': 'float', 'ONDE_CYLINDER:DIMENSIONS': 'float',
+  'ONDE_UT_PROBE:FREQUENCY': 'float', 'ONDE_UT_PROBE:BANDWIDTH': 'float',
+  'ONDE_UT_PROBE:INDEX_POINT_FRAME': 'float', 'ONDE_UT_PROBE:COUPLING': 'ref',
+  'ONDE_LINEAR_UT_PROBE:TOTAL_NUMBER_OF_ELEMENTS': 'int',
+  'ONDE_LINEAR_UT_PROBE:ELEMENT_DIM_MAJOR': 'float',
+  'ONDE_LINEAR_UT_PROBE:ELEMENT_DIM_MINOR': 'float',
+  'ONDE_LINEAR_UT_PROBE:ELEMENT_PITCH_DIM_MAJOR': 'float',
+  'ONDE_MATRIX_UT_PROBE:TOTAL_NUMBER_OF_ELEMENTS': 'int',
+  'ONDE_MATRIX_UT_PROBE:NUMBER_OF_ELEMENTS_DIM_MINOR': 'int',
+  'ONDE_MATRIX_UT_PROBE:ELEMENT_DIM_MAJOR': 'float',
+  'ONDE_MATRIX_UT_PROBE:ELEMENT_DIM_MINOR': 'float',
+  'ONDE_MATRIX_UT_PROBE:ELEMENT_PITCH_DIM_MAJOR': 'float',
+  'ONDE_MATRIX_UT_PROBE:ELEMENT_PITCH_DIM_MINOR': 'float',
+  'ONDE_UT_COUPLING:MEDIUM_VELOCITY': 'float', 'ONDE_UT_COUPLING:MEDIUM_DENSITY': 'float',
+  'ONDE_UT_COUPLING:INCIDENCE_ANGLE': 'float',
+  'ONDE_WEDGE:CONTACT_SURFACE': 'string', 'ONDE_WEDGE:CURVATURE_RADIUS': 'float',
+  'ONDE_WEDGE:CONTACT_AREA': 'float', 'ONDE_WEDGE:HEIGHT': 'float',
+  'ONDE_WEDGE:SKEW_ANGLE': 'float', 'ONDE_WEDGE:DISORIENTATION_ANGLE': 'float',
+  'ONDE_DUAL_WEDGE:PROBE_SEPARATION': 'float', 'ONDE_DUAL_WEDGE:ROOF_ANGLE': 'float',
+  'ONDE_DUAL_WEDGE:SQUINT_ANGLE': 'float',
+  'ONDE_ACQUISITION_TRAJECTORY:ACQUISITION_RATE': 'float',
+  'ONDE_ACQUISITION_GRID:UV_GRID_FRAME': 'float',
+  'ONDE_ACQUISITION_GRID:SCAN_TYPE': 'string', 'ONDE_ACQUISITION_GRID:CYLINDER_DEFINITION': 'string',
+  'ONDE_ACQUISITION_GRID:PROBE_DIRECTION': 'float',
+  'ONDE_ULTRASONIC_SETUP:RECTIFICATION': 'string', 'ONDE_ULTRASONIC_SETUP:FILTER_TYPE': 'string',
+  'ONDE_ULTRASONIC_SETUP:ASCAN_SAMPLE_RATE': 'float', 'ONDE_ULTRASONIC_SETUP:GAIN': 'float',
+  'ONDE_ULTRASONIC_SETUP:ASCAN_START': 'float', 'ONDE_ULTRASONIC_SETUP:PRF': 'float',
+  'ONDE_PHASED_ARRAY_SETUP:EMITTER_PROBE': 'ref', 'ONDE_PHASED_ARRAY_SETUP:RECEIVING_PROBE': 'ref',
+  'ONDE_PHASED_ARRAY_SETUP:SEQUENCE_ANGLE_MODE': 'string',
+  'ONDE_PHASED_ARRAY_ANGLE:BSCAN_ANGLE': 'float',
+  'ONDE_PHASED_ARRAY_SSCAN:STARTING_ANGLE': 'float', 'ONDE_PHASED_ARRAY_SSCAN:FINISHING_ANGLE': 'float',
+  'ONDE_PHASED_ARRAY_SSCAN:NUMBER_OF_ANGLES': 'int',
+  'ONDE_PHASED_ARRAY_ESCAN:NUMBER_OF_ELEMENTS': 'int', 'ONDE_PHASED_ARRAY_ESCAN:STEP': 'int',
+  'ONDE_PHASED_ARRAY_ESCAN:ANGLE': 'float',
+  'ONDE_PHASED_ARRAY_COMPOUND:INITIAL_ANGLE': 'float', 'ONDE_PHASED_ARRAY_COMPOUND:FINAL_ANGLE': 'float',
+  'ONDE_PHASED_ARRAY_COMPOUND:NUMBER_OF_ANGLES': 'int', 'ONDE_PHASED_ARRAY_COMPOUND:NUMBER_OF_ELEMENTS': 'int',
+  'ONDE_UT_ELEMENTS:FRAME': 'float', 'ONDE_UT_ELEMENTS:SHAPE': 'int',
+  'ONDE_UT_ELEMENTS:SIZE': 'float', 'ONDE_UT_ELEMENTS:DEAD_ELEMENT': 'int',
+  'ONDE_ULTRASONIC_SETUP:SOFTWARE_GAIN_DB': 'float', // custom extension
+  'ONDE_ULTRASONIC_SETUP:FILTER_PARAMETERS': 'float',
+  'ONDE_ULTRASONIC_SETUP:FILTER_DESCRIPTION': 'string',
+};
+
+/** Set a typed attribute on an HDF5 group/dataset, respecting CSV type spec */
 function setH5Attr(obj, name, value) {
+  if (value === undefined || value === null) return; // skip undefined refs
   try {
-    if (Array.isArray(value)) {
-      // Check if all elements are strings or numbers
-      const allStrings = value.every(v => typeof v === 'string');
-      if (allStrings) {
+    const specType = ONDE_FIELD_TYPES[name] || 'float'; // default to float
+    
+    if (specType === 'string') {
+      if (Array.isArray(value)) {
         const maxLen = Math.max(...value.map(v => String(v).length), 1);
         obj.create_attribute(name, value.map(String), null, `S${maxLen}`);
       } else {
-        // Numeric array — use Float64Array to force float64 (H5T_NATIVE_DOUBLE)
-        const numericArr = new Float64Array(value.map(v => Number(v)));
-        obj.create_attribute(name, numericArr);
+        obj.create_attribute(name, String(value));
       }
-    } else if (typeof value === 'string') {
-      obj.create_attribute(name, value);
-    } else if (typeof value === 'number') {
-      // Wrap scalar in Float64Array to force float64 type (not int32)
-      obj.create_attribute(name, new Float64Array([value]));
+    } else if (specType === 'int') {
+      if (Array.isArray(value)) {
+        obj.create_attribute(name, new Int32Array(value.map(v => Number(v))));
+      } else {
+        obj.create_attribute(name, new Int32Array([Number(value)]));
+      }
+    } else if (specType === 'float') {
+      if (Array.isArray(value)) {
+        obj.create_attribute(name, new Float64Array(value.map(v => Number(v))));
+      } else {
+        obj.create_attribute(name, new Float64Array([Number(value)]));
+      }
+    } else {
+      // ref/any — pass through as-is (string paths for refs)
+      if (Array.isArray(value)) {
+        const allStrings = value.every(v => typeof v === 'string');
+        if (allStrings) {
+          obj.create_attribute(name, value.map(String));
+        } else {
+          obj.create_attribute(name, new Float64Array(value.map(Number)));
+        }
+      } else if (typeof value === 'string') {
+        obj.create_attribute(name, value);
+      } else if (typeof value === 'number') {
+        obj.create_attribute(name, new Float64Array([value]));
+      }
     }
   } catch (e) {
     console.warn(`setH5Attr failed for ${name}:`, e.message);
