@@ -264,14 +264,15 @@ function setH5Attr(obj, name, value) {
         const maxLen = Math.max(...value.map(v => String(v).length), 1);
         obj.create_attribute(name, value.map(String), null, `S${maxLen}`);
       } else {
-        // Numeric array — preserve as native HDF5 numeric type
-        const numericArr = value.map(v => Number(v));
+        // Numeric array — use Float64Array to force float64 (H5T_NATIVE_DOUBLE)
+        const numericArr = new Float64Array(value.map(v => Number(v)));
         obj.create_attribute(name, numericArr);
       }
     } else if (typeof value === 'string') {
       obj.create_attribute(name, value);
     } else if (typeof value === 'number') {
-      obj.create_attribute(name, value);
+      // Wrap scalar in Float64Array to force float64 type (not int32)
+      obj.create_attribute(name, new Float64Array([value]));
     }
   } catch (e) {
     console.warn(`setH5Attr failed for ${name}:`, e.message);
