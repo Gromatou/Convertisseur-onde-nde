@@ -326,7 +326,10 @@ const ONDE_FIELD_TYPES = {
 
 /** Set a typed attribute on an HDF5 group/dataset, respecting CSV type spec */
 function setH5Attr(obj, name, value) {
-  if (value === undefined || value === null) return; // skip undefined refs
+  // Skip null, undefined, NaN, empty values
+  if (value === undefined || value === null) return;
+  if (typeof value === 'number' && isNaN(value)) return;
+  if (Array.isArray(value) && value.length === 0) return;
   try {
     const specType = ONDE_FIELD_TYPES[name] || 'float'; // default to float
     
