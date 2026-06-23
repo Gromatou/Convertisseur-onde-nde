@@ -1405,10 +1405,7 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     const isTFM = firstProc && firstProc.totalFocusingMethod;
     if (isPA) {
       // Fix 4: Create ONDE_PHASED_ARRAY_SETUP
-      const paPath = writeOndePhasedArraySetup(outFile, firstProc, probePaths, stats);
-      if (paPath) {
-        setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:PHASED_ARRAY_SETUP', paPath);
-      }
+      writeOndePhasedArraySetup(outFile, firstProc, probePaths, stats);
 
       // Fix 3: Create ONDE_UT_LAW groups
       const lawPaths = writeOndeLawGroups(outFile, firstProc, probePaths, stats);
@@ -1425,7 +1422,6 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
         setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:EMITTER_PROBE', probeRef);
         setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:RECEIVING_PROBE', probeRef);
         setH5Attr(pg, 'ONDE_PHASED_ARRAY_SETUP:SEQUENCE_ANGLE_MODE', 'L');
-        setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:PHASED_ARRAY_SETUP', paPath);
       } catch (e) {
         stats.warnings.push(`Error creating TFM phased array setup: ${e.message}`);
       }
