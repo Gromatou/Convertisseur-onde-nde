@@ -238,12 +238,12 @@ async function convertNdeToOnde(inFile, FS, stats) {
   // After setup creation: add TRANSMIT_LAW / RECEIVE_LAW datasets on PA dataset groups
   // referencing the ONDE_UT_LAW_N groups created above
   if (setupLawPaths.length > 0) {
-    for (const ref of datasetRefs) {
-      const dg = out.get(ref.path);
-      if (!dg) continue;
+    // TRANSMIT_LAW and RECEIVE_LAW belong to ONDE_ULTRASONIC_SETUP, not to dataset groups
+    const us = out.get('/ONDE_ULTRASONIC_SETUP');
+    if (us) {
       try {
-        dg.create_dataset({ name: 'TRANSMIT_LAW', data: setupLawPaths });
-        dg.create_dataset({ name: 'RECEIVE_LAW', data: setupLawPaths });
+        us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:TRANSMIT_LAW', data: setupLawPaths });
+        us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:RECEIVE_LAW', data: setupLawPaths });
       } catch (_) {}
     }
   }
@@ -870,7 +870,7 @@ function createPlaceholder(file, path, data) {
 function getOndeDatasetName(dataClass) {
   switch (dataClass) {
     case 'AScanAmplitude': case 'TfmValue': case 'CScanPeak': case 'CScanTime':
-      return 'DATA';
+      return 'ONDE_DATASET:DATA';
     default:
       return null;
   }
@@ -984,7 +984,7 @@ function writeOndeDimensionsFromNde(outFile, ondeGroupPath, nds, dsIndex) {
   }
 }
 
-function copyNdeDataToOnde(inFile, outFile, nds, ondePath, stats, targetName = 'DATA') {
+function copyNdeDataToOnde(inFile, outFile, nds, ondePath, stats, targetName = 'ONDE_DATASET:DATA') {
   try {
     if (!nds.path) return;
     const sourceDs = inFile.get(nds.path);
@@ -1038,15 +1038,15 @@ function writeOndeLawGroups(outFile, proc, probePaths, stats) {
 
       // PROBE dataset — store as string array (h5wasm doesn't support HDF5 refs)
       const probeStrings = channels.map(() => probePaths[0] || '/ONDE_PROBE_0');
-      lg.create_dataset({ name: 'PROBE', data: probeStrings });      
+      lg.create_dataset({ name: 'ONDE_UT_LAW:PROBE', data: probeStrings });      
 
       // ELEMENT dataset — array of element indices
       const elemArr = new Int32Array(channels.map(ch => ch.elementId));
-      lg.create_dataset({ name: 'ELEMENT', data: elemArr });
+      lg.create_dataset({ name: 'ONDE_UT_LAW:ELEMENT', data: elemArr });
 
       // DELAY dataset — array of delays
       const delayArr = new Float64Array(channels.map(ch => ch.delay));
-      lg.create_dataset({ name: 'DELAY', data: delayArr });
+      lg.create_dataset({ name: 'ONDE_UT_LAW:DELAY', data: delayArr });
 
       lawGroupPaths.push(lawName);
     } catch (e) {
@@ -1312,17 +1312,17 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
 
     // PROBE_LIST: array of probe paths
     if (probePaths.length > 0) {
-      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:PROBE_LIST', probePaths);
+      gg.create_dataset({ name: 'ONDE_GEOMETRIC_SETUP:PROBE_LIST', data: probePaths });
     }
 
     // ACQUISITION_TRAJECTORY: array of trajectory paths
     if (trajPaths.length > 0) {
-      setH5Attr(gg, 'ONDE_GEOMETRIC_SETUP:ACQUISITION_TRAJECTORY', trajPaths);
+      gg.create_dataset({ name: 'ONDE_GEOMETRIC_SETUP:ACQUISITION_TRAJECTORY', data: trajPaths });
     }
 
     // COMPONENT: reference to component group (as dataset per spec)
     if (specimens.length > 0) {
-      gg.create_dataset({ name: 'COMPONENT', data: ['/ONDE_COMPONENT'] });
+      gg.create_dataset({ name: 'ONDE_GEOMETRIC_SETUP:COMPONENT', data: ['/ONDE_COMPONENT'] });
     }
 
     // COUPLING reference (attribute)
@@ -1360,8 +1360,8 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     }
     setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:RECTIFICATION', rectification);
     const linearGain = Math.pow(10, gainDb / 20);
-    us.create_dataset({ name: 'GAIN', data: new Float64Array([linearGain]) });
-    us.create_dataset({ name: 'ASCAN_START', data: new Float64Array([ascanStartVal]) });
+    us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:GAIN', data: new Float64Array([linearGain]) });
+    us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:ASCAN_START', data: new Float64Array([ascanStartVal]) });
     setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:ASCAN_SAMPLE_RATE', digitizingFreq / ascanCompression);
 
     // ── TCG Curve (NDE ultrasonicTcg → ONDE TCG_CURVE) ─────────────
@@ -1374,7 +1374,7 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
         tcgData[i * 2] = points[i].time || 0;
         tcgData[i * 2 + 1] = Math.pow(10, (points[i].gain || 0) / 20); // dB → linear
       }
-      us.create_dataset({ name: 'TCG_CURVE', data: tcgData, shape: [points.length, 2] });
+      us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:TCG_CURVE', data: tcgData, shape: [points.length, 2] });
     }
 
     // ── Software Gain (NDE process.gain on Software impl → custom ONDE attr) ──
