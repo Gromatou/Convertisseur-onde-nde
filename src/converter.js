@@ -350,7 +350,8 @@ function setH5Attr(obj, name, value) {
       if (Array.isArray(value)) {
         obj.create_attribute(name, new Float64Array(value.map(v => Number(v))));
       } else {
-        obj.create_attribute(name, Number(value));  // scalar, let h5wasm infer type
+        // Force float64 via explicit dtype to prevent h5wasm inferring int32 for whole numbers
+        obj.create_attribute(name, Number(value), null, '<d');
       }
     } else {
       // ref/any — pass through as-is (string paths for refs)
