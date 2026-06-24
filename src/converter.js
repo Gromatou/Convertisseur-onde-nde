@@ -1381,7 +1381,7 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
     // ── Software Gain (NDE process.gain on Software impl → custom ONDE attr) ──
     const swGainProc = (setup.groups || []).flatMap(g => g.processes || []).find(p => p.implementation === 'Software' && p.gain !== undefined && !p.ultrasonicConventional && !p.ultrasonicPhasedArray);
     if (swGainProc) {
-      setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:SOFTWARE_GAIN_DB', swGainProc.gain);
+      us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:SOFTWARE_GAIN', data: new Float64Array([swGainProc.gain]) });
     }
 
     // ── Filter Type ─────────────────────────────────────────────────
