@@ -1390,13 +1390,15 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
       const ul = mainProc.ultrasonicConventional || mainProc.ultrasonicPhasedArray || mainProc.ultrasonicMatrixCapture;
       if (ul) {
         if (ul.filterType) setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_TYPE', NDE_TO_ONDE.filterMap[ul.filterType] || 'OTHER');
-        if (ul.smoothingFilter) setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_PARAMETERS', ul.smoothingFilter);
         if (ul.digitalBandPassFilter) {
           const bp = ul.digitalBandPassFilter;
-          if (bp.lowCutOffFrequency || bp.highCutOffFrequency) {
-            setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_DESCRIPTION', 
-              `LOW=${bp.lowCutOffFrequency || 0}Hz HIGH=${bp.highCutOffFrequency || 0}Hz`);
+          const low = bp.lowCutOffFrequency || 0;
+          const high = bp.highCutOffFrequency || 0;
+          if (low || high) {
+            setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_PARAMETERS', [low, high]);
           }
+        } else if (ul.smoothingFilter) {
+          setH5Attr(us, 'ONDE_ULTRASONIC_SETUP:FILTER_PARAMETERS', ul.smoothingFilter);
         }
       }
     }
