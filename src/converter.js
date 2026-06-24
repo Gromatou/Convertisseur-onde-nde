@@ -344,13 +344,13 @@ function setH5Attr(obj, name, value) {
       if (Array.isArray(value)) {
         obj.create_attribute(name, new Int32Array(value.map(v => Number(v))));
       } else {
-        obj.create_attribute(name, new Int32Array([Number(value)]));
+        obj.create_attribute(name, Number(value));  // scalar, let h5wasm infer type
       }
     } else if (specType === 'float') {
       if (Array.isArray(value)) {
         obj.create_attribute(name, new Float64Array(value.map(v => Number(v))));
       } else {
-        obj.create_attribute(name, new Float64Array([Number(value)]));
+        obj.create_attribute(name, Number(value));  // scalar, let h5wasm infer type
       }
     } else {
       // ref/any — pass through as-is (string paths for refs)
@@ -364,7 +364,7 @@ function setH5Attr(obj, name, value) {
       } else if (typeof value === 'string') {
         obj.create_attribute(name, value);
       } else if (typeof value === 'number') {
-        obj.create_attribute(name, new Float64Array([value]));
+        obj.create_attribute(name, Number(value));  // scalar
       }
     }
   } catch (e) {
