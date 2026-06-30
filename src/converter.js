@@ -122,6 +122,8 @@ async function convertOndeToNde(inFile, FS, stats) {
 
   out.create_group('/Private');
   out.close();
+  // Upgrade string paths to real HDF5 references
+  await upgradeToRealReferences(outName);
   return outName;
 }
 
@@ -230,25 +232,31 @@ async function convertNdeToOnde(inFile, FS, stats) {
   }
 
   // Write ONDE_SETUP group if we have datasets
-  let setupLawPaths = [];
+  let setupLawResult = { txPaths: [], rxPaths: [] };
   if (datasetRefs.length > 0) {
-    setupLawPaths = writeOndeSetupFromNde(out, setup, stats) || [];
+    setupLawResult = writeOndeSetupFromNde(out, setup, stats) || { txPaths: [], rxPaths: [] };
   }
 
-  // After setup creation: add TRANSMIT_LAW / RECEIVE_LAW datasets on PA dataset groups
-  // referencing the ONDE_UT_LAW_N groups created above
-  if (setupLawPaths.length > 0) {
-    // TRANSMIT_LAW and RECEIVE_LAW belong to ONDE_ULTRASONIC_SETUP, not to dataset groups
+  // After setup creation: add TRANSMIT_LAW / RECEIVE_LAW datasets on ONDE_ULTRASONIC_SETUP
+  // referencing the ONDE_UT_LAW_N (TX) and ONDE_UT_LAW_RX_N (RX) groups
+  const { txPaths, rxPaths } = setupLawResult;
+  if (txPaths.length > 0 || rxPaths.length > 0) {
     const us = out.get('/ONDE_ULTRASONIC_SETUP');
     if (us) {
       try {
-        us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:TRANSMIT_LAW', data: setupLawPaths });
-        us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:RECEIVE_LAW', data: setupLawPaths });
+        if (txPaths.length > 0) {
+          us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:TRANSMIT_LAW', data: txPaths });
+        }
+        if (rxPaths.length > 0) {
+          us.create_dataset({ name: 'ONDE_ULTRASONIC_SETUP:RECEIVE_LAW', data: rxPaths });
+        }
       } catch (_) {}
     }
   }
 
   out.close();
+  // Upgrade string paths to real HDF5 references
+  await upgradeToRealReferences(outName);
   return outName;
 }
 
@@ -1006,7 +1014,7 @@ function copyNdeDataToOnde(inFile, outFile, nds, ondePath, stats, targetName = '
 
 // ─── PA Law Groups (Fix 3) ──────────────────────────────────────────────
 
-function writeOndeLawGroups(outFile, proc, probePaths, stats) {
+function writeOndeLawGroups(outFile, proc, probePaths, stats, isTransmit = true) {
   if (!proc) return [];
   const paProc = proc.ultrasonicPhasedArray;
   if (!paProc || !paProc.beams || !Array.isArray(paProc.beams)) return [];
@@ -1016,28 +1024,24 @@ function writeOndeLawGroups(outFile, proc, probePaths, stats) {
 
   for (let bi = 0; bi < beamData.length; bi++) {
     const beam = beamData[bi];
-    const lawName = `/ONDE_UT_LAW_${bi}`;
+    const lawName = isTransmit ? `/ONDE_UT_LAW_${bi}` : `/ONDE_UT_LAW_RX_${bi}`;
     try {
       outFile.create_group(lawName);
       const lg = outFile.get(lawName);
       setH5Attr(lg, 'ONDE:TYPE', ['ONDE_UT_LAW']);
 
-      // Gather pulsers & receivers — use whichever is available
-      const channels = [];
-      const pulsers = beam.pulsers || [];
-      const receivers = beam.receivers || [];
-      // Prefer pulsers for element/delay mapping; fall back to receivers
-      const chs = pulsers.length > 0 ? pulsers : receivers;
-      for (const ch of chs) {
-        channels.push({
-          elementId: ch.elementId !== undefined ? ch.elementId : 0,
-          delay: ch.delay !== undefined ? ch.delay : 0.0,
-          probeIdx: ch.probeId !== undefined ? ch.probeId : 0
-        });
-      }
+      // For TX: use beam.pulsers; for RX: use beam.receivers
+      const pulsersOrReceivers = isTransmit ? (beam.pulsers || []) : (beam.receivers || []);
+      if (pulsersOrReceivers.length === 0) continue;
+
+      const channels = pulsersOrReceivers.map(ch => ({
+        elementId: ch.elementId !== undefined ? ch.elementId : 0,
+        delay: ch.delay !== undefined ? ch.delay : 0.0,
+        probeIdx: ch.probeId !== undefined ? ch.probeId : 0
+      }));
       if (channels.length === 0) continue;
 
-      // PROBE dataset — store as string array (h5wasm doesn't support HDF5 refs)
+      // PROBE dataset — store as string array (upgraded to real refs later)
       const probeStrings = channels.map(() => probePaths[0] || '/ONDE_PROBE_0');
       lg.create_dataset({ name: 'ONDE_UT_LAW:PROBE', data: probeStrings });      
 
@@ -1215,7 +1219,8 @@ function writeOndeGates(outFile, processes, datasetPath) {
 }
 
 function writeOndeSetupFromNde(outFile, setup, stats) {
-  const lawGroupPaths = [];
+  const txLawGroupPaths = [];
+  const rxLawGroupPaths = [];
   try {
     // ── Create ONDE_SETUP group ─────────────────────────────────────
     const setupGroup = '/ONDE_SETUP_UT';
@@ -1410,9 +1415,12 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
       // Fix 4: Create ONDE_PHASED_ARRAY_SETUP
       writeOndePhasedArraySetup(outFile, firstProc, probePaths, stats);
 
-      // Fix 3: Create ONDE_UT_LAW groups
-      const lawPaths = writeOndeLawGroups(outFile, firstProc, probePaths, stats);
-      lawGroupPaths.push(...lawPaths);
+      // Fix 3: Create ONDE_UT_LAW groups (transmit)
+      const txPaths = writeOndeLawGroups(outFile, firstProc, probePaths, stats, true);
+      txLawGroupPaths.push(...txPaths);
+      // Create ONDE_UT_LAW_RX groups (receive)
+      const rxPaths = writeOndeLawGroups(outFile, firstProc, probePaths, stats, false);
+      rxLawGroupPaths.push(...rxPaths);
     } else if (isTFM) {
       // Create ONDE_PHASED_ARRAY_SETUP with FMC subtype for TFM
       const tfmProc = firstProc.totalFocusingMethod;
@@ -1437,7 +1445,7 @@ function writeOndeSetupFromNde(outFile, setup, stats) {
   } catch (e) {
     stats.warnings.push(`OND setup write error: ${e.message}`);
   }
-  return lawGroupPaths;
+  return { txPaths: txLawGroupPaths, rxPaths: rxLawGroupPaths };
 }
 
 function buildOndeComponent(outFile, specimen) {
@@ -1471,3 +1479,209 @@ function extractVelocitiesToAttrs(comp, material) {
   const tVel = material.transversalVerticalWave?.nominalVelocity || 3230;
   setH5Attr(comp, 'ONDE_COMPONENT:VELOCITIES', [lVel, tVel]);
 }
+
+// ─── Real HDF5 Reference Upgrader (Parts C & D) ─────────────────────────
+
+/**
+ * Walk all objects (groups AND datasets) in an HDF5 file.
+ * Calls visitor(path) for each group and dataset found.
+ */
+function walkAllObjects(file, path, visitor) {
+  try {
+    const obj = file.get(path);
+    if (!obj) return;
+    // If it has keys(), it's a group — recurse into children
+    if (typeof obj.keys === 'function') {
+      const children = obj.keys();
+      if (children) {
+        for (const child of children) {
+          const childPath = path === '/' ? `/${child}` : `${path}/${child}`;
+          visitor(childPath, child);
+          walkAllObjects(file, childPath, visitor);
+        }
+      }
+    }
+  } catch (_) { /* skip inaccessible objects */ }
+}
+
+/**
+ * Check if a value looks like an HDF5 reference path.
+ * Accepts strings starting with '/' (HDF5 internal paths).
+ */
+function isRefPath(value) {
+  return typeof value === 'string' && value.startsWith('/');
+}
+
+function isRefArray(arr) {
+  return Array.isArray(arr) && arr.length > 0 && arr.every(isRefPath);
+}
+
+/**
+ * Build a concatenated null-terminated byte buffer from string array
+ * for passing to the ref module's C functions.
+ */
+function buildNullSeparatedBuffer(Module, strings) {
+  const encoder = new TextEncoder();
+  const parts = strings.map(s => encoder.encode(s + '\0'));
+  const totalLen = parts.reduce((sum, p) => sum + p.length, 0);
+  const buf = Module._malloc(totalLen);
+  let offset = 0;
+  for (const part of parts) {
+    Module.HEAPU8.set(part, buf + offset);
+    offset += part.length;
+  }
+  return buf;
+}
+
+/**
+ * Upgrade string-based reference paths in the output HDF5 file to real
+ * H5T_STD_REF_OBJ references using the low-level h5wasm-ref module.
+ *
+ * This function:
+ * 1. Opens the file with h5wasm (read-only) to discover reference attributes/datasets
+ * 2. Opens the file with the ref module (read-write)
+ * 3. Replaces string attribute paths with real HDF5 object references
+ * 4. Replaces string dataset arrays with real HDF5 reference datasets
+ * 5. Closes and returns
+ */
+async function upgradeToRealReferences(outName) {
+  const h5wasm = globalThis.h5wasm;
+  const H5RefModule = globalThis.H5RefModule;
+  if (!h5wasm || !H5RefModule) {
+    console.log('[ref-upgrade] h5wasm or H5RefModule not available, skipping ref upgrade');
+    return;
+  }
+
+  const refMod = await H5RefModule;
+  if (!refMod || typeof refMod.ccall !== 'function') {
+    console.log('[ref-upgrade] H5RefModule not ready, skipping');
+    return;
+  }
+
+  console.log('[ref-upgrade] Starting reference upgrade for:', outName);
+
+  // ── Step 1: Scan file with h5wasm ──────────────────────────────────
+  let scanFile;
+  try {
+    scanFile = new h5wasm.File(outName, 'r');
+  } catch (e) {
+    console.warn('[ref-upgrade] Cannot open for scan:', e.message);
+    return;
+  }
+
+  // Collections: { parentPath: string, attrName: string, targetPath: string }[]
+  const scalarRefs = [];
+  const arrayRefs = [];
+  const datasetRefs = [];
+
+  // Walk all objects in the file
+  walkAllObjects(scanFile, '/', (objPath, objName) => {
+    try {
+      const obj = scanFile.get(objPath);
+      if (!obj) return;
+
+      // Check attributes
+      if (obj.attrs) {
+        for (const [attrName, attr] of Object.entries(obj.attrs)) {
+          if (!attr || attr.value === undefined || attr.value === null) continue;
+          const val = attr.value;
+          if (typeof val === 'string' && isRefPath(val)) {
+            scalarRefs.push({ parentPath: objPath, attrName, targetPath: val });
+          } else if (isRefArray(val)) {
+            arrayRefs.push({ parentPath: objPath, attrName, targetPaths: val });
+          }
+        }
+      }
+
+      // Check if it's a dataset (not a group) containing string data
+      // We detect datasets by absence of keys() function
+      if (typeof obj.keys !== 'function' && obj.value !== undefined) {
+        const val = obj.value;
+        if (typeof val === 'string' && isRefPath(val)) {
+          // Scalar string dataset with a path — unusual but handle it
+          scalarRefs.push({ parentPath: objPath, attrName: null, targetPath: val });
+        } else if (isRefArray(val)) {
+          datasetRefs.push({ datasetPath: objPath, targetPaths: val });
+        }
+      }
+    } catch (_) {}
+  });
+
+  scanFile.close();
+
+  console.log(`[ref-upgrade] Found ${scalarRefs.length} scalar refs, ${arrayRefs.length} array refs, ${datasetRefs.length} dataset refs`);
+
+  if (scalarRefs.length === 0 && arrayRefs.length === 0 && datasetRefs.length === 0) {
+    console.log('[ref-upgrade] Nothing to upgrade');
+    return;
+  }
+
+  // ── Step 2: Open file with ref module (read-write) ─────────────────
+  const fileId = refMod.ccall('h5r_open', 'number', ['string'], [outName]);
+  if (fileId < 0) {
+    console.warn('[ref-upgrade] Cannot open file with ref module');
+    return;
+  }
+
+  try {
+    // ── Step 3: Upgrade scalar reference attributes ──────────────────
+    for (const ref of scalarRefs) {
+      try {
+        const parentId = refMod.ccall('h5r_open_group', 'number', ['number', 'string'], [fileId, ref.parentPath]);
+        if (parentId >= 0) {
+          const result = refMod.ccall('h5r_set_attr_ref', 'number',
+            ['number', 'string', 'number', 'string'],
+            [parentId, ref.attrName, fileId, ref.targetPath]);
+          refMod.ccall('h5r_close_obj', 'number', ['number'], [parentId]);
+          if (result === 0) {
+            console.log(`[ref-upgrade]  ✓ Scalar ref: ${ref.parentPath}:${ref.attrName} → ${ref.targetPath}`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[ref-upgrade] Failed scalar ref ${ref.parentPath}:${ref.attrName}:`, e.message);
+      }
+    }
+
+    // ── Step 4: Upgrade array reference attributes ───────────────────
+    for (const ref of arrayRefs) {
+      try {
+        const parentId = refMod.ccall('h5r_open_group', 'number', ['number', 'string'], [fileId, ref.parentPath]);
+        if (parentId >= 0) {
+          const buf = buildNullSeparatedBuffer(refMod, ref.targetPaths);
+          const result = refMod.ccall('h5r_set_attr_ref_array', 'number',
+            ['number', 'string', 'number', 'number', 'number'],
+            [parentId, ref.attrName, fileId, buf, ref.targetPaths.length]);
+          refMod._free(buf);
+          refMod.ccall('h5r_close_obj', 'number', ['number'], [parentId]);
+          if (result === 0) {
+            console.log(`[ref-upgrade]  ✓ Array ref attr: ${ref.parentPath}:${ref.attrName} (${ref.targetPaths.length} paths)`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[ref-upgrade] Failed array ref attr ${ref.parentPath}:${ref.attrName}:`, e.message);
+      }
+    }
+
+    // ── Step 5: Upgrade reference datasets ───────────────────────────
+    for (const ref of datasetRefs) {
+      try {
+        const buf = buildNullSeparatedBuffer(refMod, ref.targetPaths);
+        const result = refMod.ccall('h5r_create_dataset_ref', 'number',
+          ['number', 'string', 'number', 'number'],
+          [fileId, ref.datasetPath, buf, ref.targetPaths.length]);
+        refMod._free(buf);
+        if (result === 0) {
+          console.log(`[ref-upgrade]  ✓ Dataset ref: ${ref.datasetPath} (${ref.targetPaths.length} paths)`);
+        }
+      } catch (e) {
+        console.warn(`[ref-upgrade] Failed dataset ref ${ref.datasetPath}:`, e.message);
+      }
+    }
+  } finally {
+    refMod.ccall('h5r_close', 'number', ['number'], [fileId]);
+  }
+
+  console.log('[ref-upgrade] Complete');
+}
+
+// ─── Reference Upgrade Integration ─────────────────────────────────────

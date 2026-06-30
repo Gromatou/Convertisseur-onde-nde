@@ -316,3 +316,64 @@ hid_t h5r_create_dataset_f64(hid_t parent_id, const char *name, const double *da
     H5Sclose(space_id);
     return ds_id;
 }
+
+// ─── NEW: Dataset Reference Array & Link Deletion (Part B) ────────────────
+
+/**
+ * Create a dataset containing an ARRAY of HDF5 object references.
+ * target_paths should be a concatenation of null-terminated C strings,
+ * and count specifies the number of paths.
+ *
+ * The parent group of the given path must already exist.
+ * If a dataset already exists at the given path, it will be deleted first.
+ *
+ * Returns 0 on success, -1 on failure.
+ */
+EMSCRIPTEN_KEEPALIVE
+int h5r_create_dataset_ref(hid_t file_id, const char *path, const char *target_paths, int count) {
+    if (count <= 0 || !path || !target_paths) return -1;
+
+    // Delete existing link if present
+    H5Ldelete(file_id, path, H5P_DEFAULT);
+
+    // Allocate array of references
+    hdset_reg_ref_t *refs = (hdset_reg_ref_t *)malloc((size_t)count * sizeof(hdset_reg_ref_t));
+    if (!refs) return -1;
+
+    // Create each reference
+    const char *cur = target_paths;
+    for (int i = 0; i < count; i++) {
+        herr_t status = H5Rcreate(&refs[i], file_id, cur, H5R_OBJECT, -1);
+        if (status < 0) {
+            free(refs);
+            return -1;
+        }
+        cur += strlen(cur) + 1;
+    }
+
+    // Create 1D dataspace
+    hsize_t dims[1] = {(hsize_t)count};
+    hid_t space_id = H5Screate_simple(1, dims, NULL);
+    if (space_id < 0) { free(refs); return -1; }
+
+    // Create dataset with H5T_STD_REF_OBJ type
+    hid_t dset_id = H5Dcreate2(file_id, path, H5T_STD_REF_OBJ, space_id,
+                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+    if (dset_id < 0) { H5Sclose(space_id); free(refs); return -1; }
+
+    herr_t status = H5Dwrite(dset_id, H5T_STD_REF_OBJ, H5S_ALL, H5S_ALL, H5P_DEFAULT, refs);
+    free(refs);
+    H5Sclose(space_id);
+    H5Dclose(dset_id);
+    return (status < 0) ? -1 : 0;
+}
+
+/**
+ * Delete a link (group/dataset) from the HDF5 file by path.
+ * Returns 0 on success, -1 if the path doesn't exist or deletion fails.
+ */
+EMSCRIPTEN_KEEPALIVE
+int h5r_delete_link(hid_t file_id, const char *path) {
+    herr_t status = H5Ldelete(file_id, path, H5P_DEFAULT);
+    return (status < 0) ? -1 : 0;
+}
