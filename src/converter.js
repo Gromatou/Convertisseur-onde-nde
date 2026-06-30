@@ -1546,15 +1546,9 @@ function buildNullSeparatedBuffer(Module, strings) {
  */
 async function upgradeToRealReferences(outName) {
   const h5wasm = globalThis.h5wasm;
-  const H5RefModule = globalThis.H5RefModule;
-  if (!h5wasm || !H5RefModule) {
-    console.log('[ref-upgrade] h5wasm or H5RefModule not available, skipping ref upgrade');
-    return;
-  }
-
-  const refMod = await H5RefModule;
-  if (!refMod || !refMod._h5r_open) {
-    console.log('[ref-upgrade] H5RefModule not ready, skipping');
+  const refMod = globalThis.__refModule; // already initialized by index.html
+  if (!h5wasm || !refMod || !refMod._h5r_open) {
+    console.log('[ref-upgrade] Module not available, skipping ref upgrade');
     return;
   }
 
@@ -1621,7 +1615,7 @@ async function upgradeToRealReferences(outName) {
   scanFile.close();
   console.log(`[ref-upgrade] Found ${refAttrs.length} reference path attributes`);
 
-  // Upgrade each attribute to a real HDF5 reference
+  // Upgrade each attribute to a real HDF5 reference using _h5r_set_attr_ref
   for (const ref of refAttrs) {
     try {
       const gPtr = refStr(ref.parentPath);
@@ -1632,20 +1626,14 @@ async function upgradeToRealReferences(outName) {
       const attrPtr = refStr(ref.attrName);
       const targetPtr = refStr(ref.targetPath);
       
-      // Delete old string attr + create real ref — use _h5r_set_attr_ref
-      const refBuf = refMod._malloc(8);
-      const rc = refMod._h5r_create_reference(fileId, targetPtr, refBuf);
-      
-      if (rc >= 0) {
-        // Store reference as double (byte-for-byte copy of 8-byte ref)
-        // We can't set real H5T_STD_REF_OBJ attributes via h5wasm,
-        // but the ref module's _h5r_set_attr_ref would need proper C implementation
-        // For now, just count it
-        upgraded++;
-        console.log(`[ref-upgrade]  ✓ ${ref.parentPath}:${ref.attrName} → ${ref.targetPath}`);
+      // _h5r_set_attr_ref creates the reference AND stores it as an attribute in one call
+      if (refMod._h5r_set_attr_ref) {
+        const rc = refMod._h5r_set_attr_ref(parentId, attrPtr, fileId, targetPtr);
+        if (rc >= 0) {
+          upgraded++;
+        }
       }
       
-      refMod._free(refBuf);
       refMod._free(attrPtr);
       refMod._free(targetPtr);
       refMod._h5r_close_obj(parentId);
