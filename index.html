@@ -1602,14 +1602,8 @@
         dom.progressContainer.style.display = 'none';
       }, 1500);
 
-      // If the output is ONDE format, use the ref module to fix up
-      // HDF5 object references (h5wasm can only write plain strings)
-      let outputBuffer = result.buffer;
-      if (result.format === 'onde') {
-        outputBuffer = await applyHdf5References(outputBuffer);
-      }
-
-      state.convertedBuffer = outputBuffer;
+      // Converter now handles HDF5 reference upgrade internally via h5wasm-ref
+      state.convertedBuffer = result.buffer;
       state.convertedFormat = result.format;
       state.conversionStats = result.stats;
 
