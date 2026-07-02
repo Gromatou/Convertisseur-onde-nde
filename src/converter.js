@@ -1654,6 +1654,9 @@ async function upgradeToRealReferences(outName) {
   scanFile.close();
 
   console.log(`[ref-upgrade] Found ${refAttrs.length} scalar attr refs, ${refArrayAttrs.length} array attr refs, ${refDatasets.length} dataset refs`);
+  if (refDatasets.length > 0) {
+    console.log('[ref-upgrade] Dataset refs to upgrade:', refDatasets.map(d => `${d.path} → [${d.targetPaths.join(', ')}]`));
+  }
 
   // ── Upgrade scalar reference attributes ──
   for (const ref of refAttrs) {
@@ -1707,29 +1710,17 @@ async function upgradeToRealReferences(outName) {
   }
 
   // ── Upgrade reference datasets ──
+  // All ONDE ref datasets are 1D arrays (even single-element ones like COMPONENT with [1]),
+  // so use _h5r_create_dataset_ref whenever possible.
   for (const ref of refDatasets) {
     try {
-      if (ref.targetPaths.length === 1 && refMod._h5r_create_ref_dataset) {
-        // Scalar ref dataset: use _h5r_create_ref_dataset (needs parent group id)
-        // Extract parent path (everything before the last /) from the full dataset path
-        const lastSlash = ref.path.lastIndexOf('/');
-        const parentPath = lastSlash <= 0 ? '/' : ref.path.substring(0, lastSlash);
-        const dsName = ref.path.substring(lastSlash + 1);
+      if (ref.targetPaths.length === 0) {
+        console.warn(`[ref-upgrade] Skipping dataset ${ref.path} — no target paths`);
+        continue;
+      }
 
-        const gPtr = refStr(parentPath);
-        const parentId = refMod._h5r_open_group(fileId, gPtr);
-        refMod._free(gPtr);
-        if (parentId < 0) continue;
-
-        const namePtr = refStr(dsName);
-        const targetPtr = refStr(ref.targetPaths[0]);
-        const rc = refMod._h5r_create_ref_dataset(parentId, namePtr, fileId, targetPtr);
-        if (rc >= 0) upgraded++;
-        refMod._free(namePtr);
-        refMod._free(targetPtr);
-        refMod._h5r_close_obj(parentId);
-      } else if (ref.targetPaths.length > 1 && refMod._h5r_create_dataset_ref) {
-        // Array ref dataset: use _h5r_create_dataset_ref (needs file_id + full path)
+      // Prefer array path: _h5r_create_dataset_ref(fileId, fullPath, pathsBuf, count)
+      if (refMod._h5r_create_dataset_ref) {
         const totalLen = ref.targetPaths.reduce((sum, p) => sum + p.length + 1, 0);
         const pathsBuf = refMod._malloc(totalLen);
         let offset = 0;
@@ -1741,11 +1732,47 @@ async function upgradeToRealReferences(outName) {
 
         const dsPathPtr = refStr(ref.path);
         const rc = refMod._h5r_create_dataset_ref(fileId, dsPathPtr, pathsBuf, ref.targetPaths.length);
-        if (rc >= 0) upgraded++;
+        if (rc >= 0) {
+          upgraded++;
+          console.log(`[ref-upgrade] ✓ Upgraded dataset: ${ref.path} → [${ref.targetPaths.join(', ')}]`);
+        } else {
+          console.warn(`[ref-upgrade] ✗ Failed to upgrade dataset: ${ref.path} → [${ref.targetPaths.join(', ')}] (rc=${rc})`);
+        }
         refMod._free(dsPathPtr);
         refMod._free(pathsBuf);
       }
-    } catch (e) { /* skip individual failures */ }
+      // Fallback to scalar path: _h5r_create_ref_dataset(parentId, dsName, fileId, targetPath)
+      else if (ref.targetPaths.length === 1 && refMod._h5r_create_ref_dataset) {
+        const lastSlash = ref.path.lastIndexOf('/');
+        const parentPath = lastSlash <= 0 ? '/' : ref.path.substring(0, lastSlash);
+        const dsName = ref.path.substring(lastSlash + 1);
+
+        const gPtr = refStr(parentPath);
+        const parentId = refMod._h5r_open_group(fileId, gPtr);
+        refMod._free(gPtr);
+        if (parentId < 0) {
+          console.warn(`[ref-upgrade] Cannot open parent group ${parentPath} for dataset ${ref.path}`);
+          continue;
+        }
+
+        const namePtr = refStr(dsName);
+        const targetPtr = refStr(ref.targetPaths[0]);
+        const rc = refMod._h5r_create_ref_dataset(parentId, namePtr, fileId, targetPtr);
+        if (rc >= 0) {
+          upgraded++;
+          console.log(`[ref-upgrade] ✓ Upgraded scalar dataset (fallback): ${ref.path} → ${ref.targetPaths[0]}`);
+        } else {
+          console.warn(`[ref-upgrade] ✗ Failed to upgrade scalar dataset: ${ref.path} → ${ref.targetPaths[0]} (rc=${rc})`);
+        }
+        refMod._free(namePtr);
+        refMod._free(targetPtr);
+        refMod._h5r_close_obj(parentId);
+      } else {
+        console.warn(`[ref-upgrade] Cannot upgrade dataset ${ref.path} — no suitable C function available`);
+      }
+    } catch (e) {
+      console.warn(`[ref-upgrade] ✗ Exception upgrading dataset ${ref.path}:`, e.message);
+    }
   }
 
   refMod._h5r_close(fileId);
