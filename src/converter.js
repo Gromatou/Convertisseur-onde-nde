@@ -1599,23 +1599,63 @@ async function upgradeToRealReferences(outName) {
   }
 
   const refAttrs = [];
-  walkAllGroups(scanFile, '/', (path) => {
+  const refArrayAttrs = [];
+  const refDatasets = [];
+
+  // Visitor: scan attributes + datasets on a given group path
+  function scanGroupObj(path) {
     try {
       const group = scanFile.get(path);
       if (!group || !group.attrs) return;
+
       for (const [attrName, attr] of Object.entries(group.attrs)) {
         if (!attr || !attr.value) continue;
+        if (attrName === 'ONDE:TYPE' || attrName === 'ONDE:TYPE_TAGS') continue;
         const val = attr.value;
-        if (typeof val === 'string' && val.startsWith('/') && attrName !== 'ONDE:TYPE' && attrName !== 'ONDE:TYPE_TAGS') {
+
+        // Scalar string: e.g. "/ONDE_GEOMETRIC_SETUP"
+        if (typeof val === 'string' && val.startsWith('/')) {
           refAttrs.push({ parentPath: path, attrName, targetPath: val });
+        }
+        // Array of strings: e.g. ["/dim_u", "/dim_time"]
+        else if (Array.isArray(val) && val.length > 0 && val.every(v => typeof v === 'string' && v.startsWith('/'))) {
+          refArrayAttrs.push({ parentPath: path, attrName, targetPaths: val });
+        }
+      }
+
+      // Check datasets (children that are NOT groups)
+      const children = group.keys();
+      if (children) {
+        for (const child of children) {
+          const childPath = path === '/' ? `/${child}` : `${path}/${child}`;
+          try {
+            const obj = scanFile.get(childPath);
+            if (obj && typeof obj.keys !== 'function') {
+              const dsVal = obj.value;
+              if (dsVal === undefined || dsVal === null) continue;
+              // Array of string paths
+              if (Array.isArray(dsVal) && dsVal.length > 0 && dsVal.every(v => typeof v === 'string' && v.startsWith('/'))) {
+                refDatasets.push({ path: childPath, targetPaths: dsVal });
+              }
+              // Scalar string path
+              else if (typeof dsVal === 'string' && dsVal.startsWith('/')) {
+                refDatasets.push({ path: childPath, targetPaths: [dsVal] });
+              }
+            }
+          } catch (_) {}
         }
       }
     } catch (_) {}
-  });
-  scanFile.close();
-  console.log(`[ref-upgrade] Found ${refAttrs.length} reference path attributes`);
+  }
 
-  // Upgrade each attribute to a real HDF5 reference using _h5r_set_attr_ref
+  // Scan root first (walkAllGroups starts from children of root)
+  scanGroupObj('/');
+  walkAllGroups(scanFile, '/', scanGroupObj);
+  scanFile.close();
+
+  console.log(`[ref-upgrade] Found ${refAttrs.length} scalar attr refs, ${refArrayAttrs.length} array attr refs, ${refDatasets.length} dataset refs`);
+
+  // ── Upgrade scalar reference attributes ──
   for (const ref of refAttrs) {
     try {
       const gPtr = refStr(ref.parentPath);
@@ -1626,20 +1666,86 @@ async function upgradeToRealReferences(outName) {
       const attrPtr = refStr(ref.attrName);
       const targetPtr = refStr(ref.targetPath);
       
-      // _h5r_set_attr_ref creates the reference AND stores it as an attribute in one call
       if (refMod._h5r_set_attr_ref) {
         const rc = refMod._h5r_set_attr_ref(parentId, attrPtr, fileId, targetPtr);
-        if (rc >= 0) {
-          upgraded++;
-        }
+        if (rc >= 0) upgraded++;
       }
       
       refMod._free(attrPtr);
       refMod._free(targetPtr);
       refMod._h5r_close_obj(parentId);
-    } catch (e) {
-      // skip individual failures
-    }
+    } catch (e) { /* skip individual failures */ }
+  }
+
+  // ── Upgrade array reference attributes ──
+  for (const ref of refArrayAttrs) {
+    try {
+      const gPtr = refStr(ref.parentPath);
+      const parentId = refMod._h5r_open_group(fileId, gPtr);
+      refMod._free(gPtr);
+      if (parentId < 0) continue;
+
+      // Concatenate null-terminated paths into a single buffer
+      const totalLen = ref.targetPaths.reduce((sum, p) => sum + p.length + 1, 0);
+      const pathsBuf = refMod._malloc(totalLen);
+      let offset = 0;
+      for (const p of ref.targetPaths) {
+        const enc = new TextEncoder().encode(p + '\0');
+        refMod.HEAPU8.set(enc, pathsBuf + offset);
+        offset += enc.length;
+      }
+
+      const attrPtr = refStr(ref.attrName);
+      if (refMod._h5r_set_attr_ref_array) {
+        const rc = refMod._h5r_set_attr_ref_array(parentId, attrPtr, fileId, pathsBuf, ref.targetPaths.length);
+        if (rc >= 0) upgraded++;
+      }
+      refMod._free(attrPtr);
+      refMod._free(pathsBuf);
+      refMod._h5r_close_obj(parentId);
+    } catch (e) { /* skip individual failures */ }
+  }
+
+  // ── Upgrade reference datasets ──
+  for (const ref of refDatasets) {
+    try {
+      if (ref.targetPaths.length === 1 && refMod._h5r_create_ref_dataset) {
+        // Scalar ref dataset: use _h5r_create_ref_dataset (needs parent group id)
+        // Extract parent path (everything before the last /) from the full dataset path
+        const lastSlash = ref.path.lastIndexOf('/');
+        const parentPath = lastSlash <= 0 ? '/' : ref.path.substring(0, lastSlash);
+        const dsName = ref.path.substring(lastSlash + 1);
+
+        const gPtr = refStr(parentPath);
+        const parentId = refMod._h5r_open_group(fileId, gPtr);
+        refMod._free(gPtr);
+        if (parentId < 0) continue;
+
+        const namePtr = refStr(dsName);
+        const targetPtr = refStr(ref.targetPaths[0]);
+        const rc = refMod._h5r_create_ref_dataset(parentId, namePtr, fileId, targetPtr);
+        if (rc >= 0) upgraded++;
+        refMod._free(namePtr);
+        refMod._free(targetPtr);
+        refMod._h5r_close_obj(parentId);
+      } else if (ref.targetPaths.length > 1 && refMod._h5r_create_dataset_ref) {
+        // Array ref dataset: use _h5r_create_dataset_ref (needs file_id + full path)
+        const totalLen = ref.targetPaths.reduce((sum, p) => sum + p.length + 1, 0);
+        const pathsBuf = refMod._malloc(totalLen);
+        let offset = 0;
+        for (const p of ref.targetPaths) {
+          const enc = new TextEncoder().encode(p + '\0');
+          refMod.HEAPU8.set(enc, pathsBuf + offset);
+          offset += enc.length;
+        }
+
+        const dsPathPtr = refStr(ref.path);
+        const rc = refMod._h5r_create_dataset_ref(fileId, dsPathPtr, pathsBuf, ref.targetPaths.length);
+        if (rc >= 0) upgraded++;
+        refMod._free(dsPathPtr);
+        refMod._free(pathsBuf);
+      }
+    } catch (e) { /* skip individual failures */ }
   }
 
   refMod._h5r_close(fileId);
